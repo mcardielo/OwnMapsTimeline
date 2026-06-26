@@ -15,6 +15,8 @@ multiple users and devices, all in a single Docker container with zero external 
 
 ## Quick Start
 
+### Option A: Docker Compose (build from source)
+
 ```bash
 # 1. Clone
 git clone https://github.com/mcardielo/OwnMapsTimeline.git
@@ -30,6 +32,19 @@ docker compose up -d
 # 4. Setup
 # Open http://localhost:8090/setup
 # Create your admin account (only available when DB is empty + local auth)
+```
+
+### Option B: Pre-built image (Docker Hub / GHCR)
+
+```bash
+docker run -d \
+  --name owntracks \
+  -p 8090:80 \
+  -v owntracks_data:/app/data \
+  -e AUTH_MODE=local \
+  -e TZ=America/Mexico_City \
+  mcardielo/ownmapstimeline:latest
+# Then open http://localhost:8090/setup
 ```
 
 ## Environment Variables
