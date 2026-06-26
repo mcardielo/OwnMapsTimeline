@@ -34,7 +34,7 @@ docker compose up -d
 # Create your admin account (only available when DB is empty + local auth)
 ```
 
-### Option B: Pre-built image (Docker Hub / GHCR)
+### Option B: Pre-built image (Docker Hub)
 
 ```bash
 docker run -d \
