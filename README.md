@@ -1,0 +1,92 @@
+# 🗺️ OwnMapsTimeline
+
+A dead-simple OwnTracks companion server and Google Maps Timeline replacement — receive
+GPS location data via webhook, visualize your tracks on an interactive map, and manage
+multiple users and devices, all in a single Docker container with zero external services.
+
+## Stack
+
+- **Backend:** PHP 8.3 (Vanilla MVC, Front Controller)
+- **Web Server:** Nginx (Alpine)
+- **Database:** SQLite (default) or MySQL/MariaDB via PDO
+- **Frontend:** HTML5, TailwindCSS, Leaflet.js
+- **Auth:** Local (PHP sessions) or Authelia proxy headers
+- **Container:** Single Docker image (Alpine, ~90MB)
+
+## Quick Start
+
+```bash
+# 1. Clone
+git clone https://github.com/mcardielo/OwnMapsTimeline.git
+cd OwnMapsTimeline
+
+# 2. Configure
+cp .env.example .env
+# Edit .env if needed (defaults work for first run with SQLite)
+
+# 3. Start
+docker compose up -d
+
+# 4. Setup
+# Open http://localhost:8090/setup
+# Create your admin account (only available when DB is empty + local auth)
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_MODE` | `local` | `local` (PHP sessions) or `authelia` (proxy header) |
+| `AUTH_HEADER` | `Remote-User` | HTTP header set by Authelia |
+| `AUTH_LOGOUT_URL` | — | Redirect URL after logout (Authelia mode) |
+| `DB_TYPE` | `sqlite` | `sqlite` or `mysql` |
+| `DB_HOST` | — | MySQL host |
+| `DB_PORT` | `3306` | MySQL port |
+| `DB_USER` | — | MySQL user |
+| `DB_PASS` | — | MySQL password |
+| `DB_NAME` | — | MySQL database name |
+| `APP_PORT` | `8090` | Host port to expose |
+| `APP_DEBUG` | `false` | Enable PHP error display |
+| `TZ` | `America/Mexico_City` | Timezone for logs and timestamps |
+
+> **Note:** When using MySQL, make sure your password does **not** contain `#` — it's
+> treated as a comment character in `.env` files.
+
+## OwnTracks App Configuration
+
+The easiest way to configure your device is from the web UI:
+
+1. Go to **Devices** → create a device with a name and TID
+2. Expand **⚙️ Remote Config** on the device card to adjust tracking settings
+3. Scan the QR code with the OwnTracks app — it sets everything automatically
+
+Alternatively, configure manually in the OwnTracks app:
+- **Mode:** HTTP
+- **Endpoint:** `https://your-host.com/webhook?tid=YOUR_TID&token=YOUR_TOKEN`
+- The TID and token are displayed on the device card in the web UI
+
+## Screenshots
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+![Devices](docs/screenshots/devices.png)
+
+## Features
+
+- **Multi-device tracking** — manage phones, tablets, and dedicated trackers
+- **Multi-user** — each user sees only their own devices
+- **Interactive map** — Leaflet.js with OpenStreetMap tiles, color-coded routes per device
+- **Route playback** — animate your tracks with adjustable speed
+- **GPX import** — bring in tracks from other apps
+- **QR provisioning** — scan to configure OwnTracks with one tap
+- **Single container** — one `docker compose up`, no external dependencies
+
+## Development
+
+```bash
+# Rebuild after changes
+docker compose up -d --build
+
+# View logs
+docker compose logs -f
+```

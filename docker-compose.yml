@@ -1,0 +1,25 @@
+services:
+  app:
+    build: .
+    container_name: OwnMapsTimeline
+    ports:
+      - "${APP_PORT:-8090}:80"
+    volumes:
+      - owntracks_data:/app/data
+    environment:
+      - AUTH_MODE=${AUTH_MODE:-local}
+      - AUTH_HEADER=${AUTH_HEADER:-Remote-User}
+      - AUTH_LOGOUT_URL=${AUTH_LOGOUT_URL:-}
+      - DB_TYPE=${DB_TYPE:-sqlite}
+      - DB_HOST=${DB_HOST:-}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-}
+      - DB_PASS=${DB_PASS:-}
+      - DB_NAME=${DB_NAME:-}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      - TZ=${TZ:-America/Mexico_City}
+    restart: unless-stopped
+
+volumes:
+  owntracks_data:
+    driver: local
