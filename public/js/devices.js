@@ -4,6 +4,7 @@
  */
 
 var _configDebounce = {};
+var _colorDebounce = {};
 
 function toggleConfig(deviceId) {
     var panel = document.getElementById('config-' + deviceId);
@@ -102,6 +103,29 @@ function updateConfigLink(deviceId, webhookUrl, deviceName) {
     } catch (e) {
         console.error('updateConfigLink error:', e);
     }
+}
+
+function onDeviceColorChange(input) {
+    var deviceId = input.dataset.device;
+    var color = input.value;
+
+    if (_colorDebounce[deviceId]) clearTimeout(_colorDebounce[deviceId]);
+    _colorDebounce[deviceId] = setTimeout(function () {
+        fetch('/devices/color', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: String(deviceId), color: color })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.status !== 'ok') {
+                console.error('Color save failed:', data.error);
+            }
+        })
+        .catch(function (err) {
+            console.error('Color save error:', err);
+        });
+    }, 400);
 }
 
 /** Build a config object from the panel's data-param inputs */

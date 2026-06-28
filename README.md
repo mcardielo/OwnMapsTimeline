@@ -67,6 +67,42 @@ docker run -d \
 > **Note:** When using MySQL, make sure your password does **not** contain `#` — it's
 > treated as a comment character in `.env` files.
 
+## Authelia / Reverse Proxy Configuration
+
+When using `AUTH_MODE=authelia`, your reverse proxy (Authelia, Authentik, or NPM) handles
+authentication. However, certain paths must be accessible **without authentication** because
+they are used by the OwnTracks mobile app or have their own token-based validation:
+
+| Path | Reason | Validation |
+|------|--------|------------|
+| `/webhook` | OwnTracks app posts location data here | `tid` + `token` in URL |
+| `/api/device-config` | QR code / deep link downloads .otrc config | `tid` + `token` in URL |
+
+**Nginx Proxy Manager example:**
+```
+Location: /webhook
+  → Access: Publicly Accessible
+Location: /api/device-config
+  → Access: Publicly Accessible
+```
+
+**Authelia `access_control` example:**
+```yaml
+access_control:
+  default_policy: deny
+  rules:
+    - domain: "owntracks.example.com"
+      resources:
+        - "^/webhook.*$"
+        - "^/api/device-config.*$"
+      policy: bypass
+    - domain: "owntracks.example.com"
+      policy: two_factor
+```
+
+> ⚠️ **Important:** If these paths are behind authentication, the OwnTracks app will get
+> 302 redirects to a login page instead of 200 OK — location updates will silently fail.
+
 ## OwnTracks App Configuration
 
 The easiest way to configure your device is from the web UI:

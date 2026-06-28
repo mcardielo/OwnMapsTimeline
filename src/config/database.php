@@ -113,6 +113,9 @@ class Database
             ON locations (device_id, tst)
         ");
 
+        // ── color column (added 2026-06-28) ────────────────────────────────
+        self::addColumnIfMissing('devices', 'color', "TEXT NOT NULL DEFAULT ''");
+
         // ── events_log ───────────────────────────────────────────────────────
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS events_log (

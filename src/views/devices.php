@@ -93,6 +93,11 @@
                 <div class="flex flex-wrap items-start justify-between gap-4">
                     <div class="flex-1 min-w-[250px]">
                         <div class="flex items-center gap-2 mb-2">
+                            <input type="color" value="<?= View::esc($device['color'] ?: '#3b82f6') ?>"
+                                class="w-6 h-6 rounded-full border-0 cursor-pointer p-0"
+                                data-device="<?= $device['id'] ?>"
+                                onchange="onDeviceColorChange(this)"
+                                title="Device color">
                             <h3 class="text-lg font-semibold"><?= View::esc($device['name']) ?></h3>
                             <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-mono"><?= View::esc($device['tid']) ?></span>
                         </div>

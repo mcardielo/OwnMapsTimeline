@@ -7,6 +7,11 @@ declare(strict_types=1);
 
 class DeviceController
 {
+    private const COLOR_PALETTE = [
+        '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
+        '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+    ];
+
     // ── List devices (GET /devices) ─────────────────────────────────────────
     public static function list(array $query = [], array $body = []): void
     {
@@ -83,9 +88,16 @@ class DeviceController
 
         $token = bin2hex(random_bytes(16));
 
+        // Auto-assign color: count existing devices, pick next palette color
+        $count = Database::queryOne(
+            'SELECT COUNT(*) AS c FROM devices WHERE user_id = ?',
+            [$userId]
+        );
+        $color = self::COLOR_PALETTE[($count['c'] ?? 0) % count(self::COLOR_PALETTE)];
+
         Database::insert(
-            'INSERT INTO devices (user_id, name, tid, webhook_token) VALUES (?, ?, ?, ?)',
-            [$userId, $name, $tid, $token]
+            'INSERT INTO devices (user_id, name, tid, webhook_token, color) VALUES (?, ?, ?, ?, ?)',
+            [$userId, $name, $tid, $token, $color]
         );
 
         $_SESSION['device_success'] = "Device '{$name}' created! Use the QR code or URL to configure OwnTracks.";
@@ -183,6 +195,45 @@ class DeviceController
         Database::execute('DELETE FROM devices WHERE id = ?', [(int) $deviceId]);
         $_SESSION['device_success'] = "Device '{$device['name']}' deleted";
         header('Location: /devices', true, 302);
+        exit;
+    }
+
+    // ── Update device color (POST /devices/color) ─────────────────────────
+    public static function updateColor(array $query = [], array $body = []): void
+    {
+        $deviceId = $body['device_id'] ?? $_POST['device_id'] ?? '';
+        $color    = $body['color'] ?? $_POST['color'] ?? '';
+
+        if (strlen($deviceId) < 1 || strlen($color) < 1) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'device_id and color are required']);
+            exit;
+        }
+
+        // Validate hex color
+        if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Invalid hex color']);
+            exit;
+        }
+
+        $device = self::getUserDevice((int) $deviceId);
+        if (!$device) {
+            http_response_code(404);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Device not found']);
+            exit;
+        }
+
+        Database::execute(
+            'UPDATE devices SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [$color, (int) $deviceId]
+        );
+
+        header('Content-Type: application/json');
+        echo json_encode(['status' => 'ok', 'color' => $color]);
         exit;
     }
 

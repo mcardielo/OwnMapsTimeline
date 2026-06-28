@@ -89,6 +89,8 @@ function toggleSidebar() {
     }).addTo(map);
 
     var markers = L.featureGroup().addTo(map);
+    var accuracyCircles = L.featureGroup().addTo(map);
+    var speedSegments = L.featureGroup().addTo(map);
     var polylines = [];
     var currentBounds = null;
     var isLoading = false;
@@ -108,6 +110,27 @@ function toggleSidebar() {
         '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
         '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
     ];
+
+    /** Map velocity (km/h) to a color: green → yellow → red */
+    function speedToColor(vel) {
+        var v = Math.max(0, Math.min(120, Number(vel) || 0));
+        var ratio = v / 120;  // 0=green, 0.5=yellow, 1=red
+        var r, g, b;
+        if (ratio < 0.5) {
+            // green → yellow
+            var s = ratio * 2;
+            r = Math.round(255 * s);
+            g = 255;
+            b = 0;
+        } else {
+            // yellow → red
+            var s = (ratio - 0.5) * 2;
+            r = 255;
+            g = Math.round(255 * (1 - s));
+            b = 0;
+        }
+        return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
 
     function showLoading() {
         isLoading = true;
@@ -171,6 +194,8 @@ function toggleSidebar() {
             var data = await resp.json();
 
             markers.clearLayers();
+            accuracyCircles.clearLayers();
+            speedSegments.clearLayers();
             polylines.forEach(function (pl) { map.removeLayer(pl); });
             polylines = [];
 
@@ -208,7 +233,8 @@ function toggleSidebar() {
 
             devIds.forEach(function (did, i) {
                 var dev = byDevice[did];
-                var color = DEVICE_COLORS[i % DEVICE_COLORS.length];
+                var firstPoint = dev.points[0];
+                var color = (firstPoint && firstPoint.color) || DEVICE_COLORS[i % DEVICE_COLORS.length];
                 var dps = dev.points;
 
                 var lastP = dps[dps.length - 1];
@@ -222,23 +248,52 @@ function toggleSidebar() {
 
                 if (dps.length > 0) {
                     L.circleMarker([dps[0].lat, dps[0].lon], {
-                        radius: 6, color: color, fillColor: color, fillOpacity: 1, weight: 2
+                        radius: 7, color: color, fillColor: color, fillOpacity: 1, weight: 2
                     }).addTo(markers).bindPopup(popupContent(dps[0]));
                 }
 
                 if (dps.length > 1) {
                     var last = dps[dps.length - 1];
                     L.circleMarker([last.lat, last.lon], {
-                        radius: 7, color: color, fillColor: '#fff', fillOpacity: 1, weight: 2.5
+                        radius: 9, color: color, fillColor: '#fff', fillOpacity: 1, weight: 2.5
                     }).addTo(markers).bindPopup(popupContent(last));
                 }
 
                 if (dps.length > 2) {
                     dps.slice(1, -1).forEach(function (p) {
                         L.circleMarker([p.lat, p.lon], {
-                            radius: 2.5, color: color, fillColor: color, fillOpacity: 0.5, weight: 1
+                            radius: 4, color: color, fillColor: color, fillOpacity: 0.5, weight: 1
                         }).addTo(markers).bindPopup(popupContent(p));
                     });
+                }
+
+                // Accuracy circles (non-interactive so popups work)
+                dps.forEach(function (p) {
+                    if (p.acc && p.acc > 0) {
+                        L.circle([p.lat, p.lon], {
+                            radius: Number(p.acc),
+                            color: color,
+                            fillColor: color,
+                            fillOpacity: 0.12,
+                            weight: 1,
+                            opacity: 0.25,
+                            interactive: false
+                        }).addTo(accuracyCircles);
+                    }
+                });
+
+                // Speed segments
+                for (var si = 1; si < dps.length; si++) {
+                    var prev = dps[si - 1];
+                    var curr = dps[si];
+                    if (curr.vel != null) {
+                        L.polyline([[prev.lat, prev.lon], [curr.lat, curr.lon]], {
+                            color: speedToColor(curr.vel),
+                            weight: 6,
+                            opacity: 0.7,
+                            interactive: false
+                        }).addTo(speedSegments);
+                    }
                 }
             });
 
@@ -304,6 +359,27 @@ function toggleSidebar() {
     window._mapLoadData = function (fit) { return loadData(fit, true); };
     window._resetRefresh = function () { return scheduleRefresh(); };
     window._stopRefresh = function () { clearTimeout(refreshTimer); refreshTimer = null; };
+    window._toggleAccuracy = function () {
+        var on = document.getElementById('showAccuracy').checked;
+        try { localStorage.setItem('ot_show_accuracy', on ? '1' : '0'); } catch (e) {}
+        if (on) {
+            map.addLayer(accuracyCircles);
+        } else {
+            map.removeLayer(accuracyCircles);
+        }
+    };
+    window._toggleSpeed = function () {
+        var on = document.getElementById('showSpeed').checked;
+        try { localStorage.setItem('ot_show_speed', on ? '1' : '0'); } catch (e) {}
+        var legend = document.getElementById('speedLegend');
+        if (on) {
+            map.addLayer(speedSegments);
+            if (legend) legend.classList.remove('hidden');
+        } else {
+            map.removeLayer(speedSegments);
+            if (legend) legend.classList.add('hidden');
+        }
+    };
 
     // ── Playback engine ────────────────────────────────────────────────────
 
@@ -346,6 +422,8 @@ function toggleSidebar() {
         pbIndex = 0;
 
         markers.clearLayers();
+        accuracyCircles.clearLayers();
+        speedSegments.clearLayers();
         polylines.forEach(function (pl) { map.removeLayer(pl); });
         polylines = [];
 
@@ -451,4 +529,29 @@ function toggleSidebar() {
         document.getElementById('sidebar').classList.add('collapsed');
         document.getElementById('sbToggle').textContent = '◀';
     }
+
+    // Restore accuracy toggle
+    try {
+        var showAcc = localStorage.getItem('ot_show_accuracy');
+        if (showAcc === '1') {
+            document.getElementById('showAccuracy').checked = true;
+            map.addLayer(accuracyCircles);
+        } else {
+            map.removeLayer(accuracyCircles);
+        }
+    } catch (e) {}
+
+    // Restore speed toggle
+    try {
+        var showSpd = localStorage.getItem('ot_show_speed');
+        var legend = document.getElementById('speedLegend');
+        if (showSpd === '1') {
+            document.getElementById('showSpeed').checked = true;
+            map.addLayer(speedSegments);
+            if (legend) legend.classList.remove('hidden');
+        } else {
+            map.removeLayer(speedSegments);
+            if (legend) legend.classList.add('hidden');
+        }
+    } catch (e) {}
 })();

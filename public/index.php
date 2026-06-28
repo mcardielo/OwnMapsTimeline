@@ -49,6 +49,7 @@ $routes = [
         '/devices/update' => 'protected:DeviceController::update',
         '/devices/config' => 'protected:DeviceController::updateConfig',
         '/devices/delete' => 'protected:DeviceController::delete',
+        '/devices/color'  => 'protected:DeviceController::updateColor',
         '/users/create'   => 'protected:UserController::create',
         '/users/update'   => 'protected:UserController::update',
         '/users/delete'   => 'protected:UserController::delete',

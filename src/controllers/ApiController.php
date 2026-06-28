@@ -70,7 +70,7 @@ class ApiController
         }
 
         // ── Query ────────────────────────────────────────────────────────────
-        $sql = "SELECT l.device_id, l.lat, l.lon, l.tst, l.acc, l.alt, l.vel, l.batt, l.bs, l.conn, l.t, l.vac, l.tag, d.name AS device_name, d.tid
+        $sql = "SELECT l.device_id, l.lat, l.lon, l.tst, l.acc, l.alt, l.vel, l.batt, l.bs, l.conn, l.t, l.vac, l.tag, d.name AS device_name, d.tid, d.color
                 FROM locations l
                 JOIN devices d ON l.device_id = d.id
                 WHERE {$where}

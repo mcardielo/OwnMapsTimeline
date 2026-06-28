@@ -47,6 +47,24 @@
             <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()" class="w-3 h-3" checked>
             Auto-refresh (30s)
         </label>
+        <label class="flex items-center gap-1 text-xs text-gray-500 mt-1 cursor-pointer">
+            <input type="checkbox" id="showAccuracy" onchange="window._toggleAccuracy()" class="w-3 h-3">
+            🎯 Show accuracy
+        </label>
+        <label class="flex items-center gap-1 text-xs text-gray-500 mt-1 cursor-pointer">
+            <input type="checkbox" id="showSpeed" onchange="window._toggleSpeed()" class="w-3 h-3">
+            🏎️ Speed overlay
+        </label>
+        <div id="speedLegend" class="hidden mt-1 text-xs text-gray-500">
+            <div class="flex items-center gap-1">
+                <span>🐢</span>
+                <div class="h-2 flex-1 rounded" style="background:linear-gradient(to right, #00ff00, #ffff00, #ff0000)"></div>
+                <span>🐇</span>
+            </div>
+            <div class="flex justify-between text-[10px] text-gray-400">
+                <span>0</span><span>60 km/h</span><span>120+</span>
+            </div>
+        </div>
     </div>
     <div id="stats" class="text-xs text-gray-500 border-t border-gray-100 pt-2 space-y-0.5">
         <div><span id="pointCount">—</span><span id="loading" class="loading-spinner" style="display:none"></span></div>
