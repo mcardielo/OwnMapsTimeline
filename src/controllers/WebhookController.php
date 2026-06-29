@@ -82,14 +82,13 @@ class WebhookController
                 break;
         }
 
-        // 6. Respond
+        // 6. Fetch friend locations (other devices owned by same user)
+        $friends = self::getFriendLocations($device['user_id'], $device['id']);
+
+        // 7. Respond — OwnTracks HTTP mode expects a JSON array of _type objects
         http_response_code(200);
         header('Content-Type: application/json');
-        echo json_encode([
-            'ok' => true,
-            'stored' => $type,
-            'tst' => $data['tst'] ?? time(),
-        ]);
+        echo json_encode($friends);
         exit;
     }
 
@@ -135,5 +134,44 @@ class WebhookController
                 json_encode($data),
             ]
         );
+    }
+
+    // ── Friend locations (other devices of same user) ──────────────────────
+    /**
+     * Return latest location for each other device owned by the same user.
+     * OwnTracks app displays these as "friends" on its map.
+     *
+     * Response format: JSON array of _type objects (OwnTracks HTTP mode spec)
+     */
+    private static function getFriendLocations(int $userId, int $excludeDeviceId): array
+    {
+        $devices = Database::query(
+            'SELECT id, tid, name FROM devices WHERE user_id = ? AND id != ?',
+            [$userId, $excludeDeviceId]
+        );
+
+        $friends = [];
+        foreach ($devices as $dev) {
+            $latest = Database::queryOne(
+                'SELECT raw_data FROM locations WHERE device_id = ? ORDER BY tst DESC LIMIT 1',
+                [$dev['id']]
+            );
+            if ($latest && $latest['raw_data']) {
+                $location = json_decode($latest['raw_data'], true);
+                if ($location && isset($location['_type'])) {
+                    // Override tid with the device name from DB
+                    $location['tid'] = $dev['name'];
+                    $friends[] = $location;
+
+                    // Also include a card so the app shows the full name
+                    $friends[] = [
+                        '_type' => 'card',
+                        'tid'   => $dev['name'],
+                        'name'  => $dev['name'],
+                    ];
+                }
+            }
+        }
+        return $friends;
     }
 }
