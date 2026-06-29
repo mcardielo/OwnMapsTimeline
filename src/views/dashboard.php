@@ -89,10 +89,12 @@
     <span id="playbackTime">--:--</span>
     <span class="pb-divider"></span>
     <select id="playbackSpeed" onchange="window._setPlaybackSpeed(this.value)">
-        <option value="1">1×</option>
-        <option value="2">2×</option>
-        <option value="5">5×</option>
         <option value="10">10×</option>
+        <option value="50">50×</option>
+        <option value="100" selected>100×</option>
+        <option value="400">400×</option>
+        <option value="1000">1000×</option>
+        <option value="1600">1600×</option>
     </select>
 </div>
 

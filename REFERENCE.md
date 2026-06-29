@@ -156,9 +156,14 @@ Priority: DB color → palette fallback by index.
 
 ### Playback
 - Only for single device (not "all")
-- Replaces markers/polylines/accuracyCircles with playback layer
+- Replaces markers/polylines/accuracyCircles/speedSegments with playback layer
+- **Time-based with interpolation**: virtual clock advances by real wall time × speed multiplier
+- Position interpolated linearly between consecutive points (no abrupt jumps)
+- `requestAnimationFrame` for smooth 60fps animation
 - States: idle, playing, paused
-- Speed: 1×, 2×, 5×, 10×
+- Speed change during playback resyncs wall clock for immediate effect
+- Progress bar shows: `45% 14:23:05 / 16:45:30`
+- Forward linear scan from `pbLastIdx` for O(n) total efficiency
 
 ### Auto-refresh
 - `setTimeout` recursive (not `setInterval`) — resets on Apply

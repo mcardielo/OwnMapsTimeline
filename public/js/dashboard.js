@@ -98,12 +98,16 @@ function toggleSidebar() {
     // ── Playback state ─────────────────────────────────────────────────────
     var pbState = 'idle';
     var pbPoints = [];
-    var pbIndex = 0;
-    var pbSpeed = 1;
+    var pbSpeed = 100;
+    var pbStartWall = null;
+    var pbStartTst = null;
+    var pbEndTst = null;
+    var pbCurrentTst = null;
+    var pbLastIdx = 0;
+    var pbRafId = null;
     var pbMarker = null;
     var pbTrail = null;
     var pbRemaining = null;
-    var pbTimer = null;
     var PB_COLOR = '#ef4444';
 
     var DEVICE_COLORS = [
@@ -384,42 +388,72 @@ function toggleSidebar() {
     // ── Playback engine ────────────────────────────────────────────────────
 
     function updatePlaybackProgress() {
-        if (pbIndex >= pbPoints.length) return;
-        var p = pbPoints[pbIndex];
-        var dt = new Date(p.tst * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        document.getElementById('playbackProgress').textContent = (pbIndex + 1) + '/' + pbPoints.length + ' pts';
-        document.getElementById('playbackTime').textContent = dt;
+        if (pbState === 'idle') return;
+        var cur = pbCurrentTst || pbStartTst;
+        var fmtTime = function (ts) {
+            var d = new Date(ts * 1000);
+            var pad = function (n) { return String(n).padStart(2, '0'); };
+            return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        };
+        var total = pbEndTst - pbStartTst;
+        var pct = total > 0 ? Math.round((cur - pbStartTst) / total * 100) : 0;
+        document.getElementById('playbackProgress').textContent = pct + '% ' + fmtTime(cur) + ' / ' + fmtTime(pbEndTst);
     }
 
-    function playbackStep() {
+    function playbackTick() {
         if (pbState !== 'playing') return;
-        pbIndex++;
-        if (pbIndex >= pbPoints.length) {
-            pbIndex = pbPoints.length - 1;
+        pbCurrentTst = pbStartTst + (Date.now() - pbStartWall) * pbSpeed / 1000;
+        if (pbCurrentTst >= pbEndTst) {
+            pbCurrentTst = pbEndTst;
             updatePlaybackProgress();
+            // Place marker at last point
+            var lastPt = pbPoints[pbPoints.length - 1];
+            pbMarker.setLatLng([lastPt.lat, lastPt.lon]);
+            pbMarker.setPopupContent(popupContent(lastPt));
+            // Fill trail completely
+            pbTrail.setLatLngs(pbPoints.map(function (pt) { return [pt.lat, pt.lon]; }));
+            pbRemaining.setLatLngs([]);
             window._stopPlayback();
             return;
         }
-        var p = pbPoints[pbIndex];
-        pbMarker.setLatLng([p.lat, p.lon]);
-        pbMarker.setPopupContent(popupContent(p));
 
-        var filled = pbPoints.slice(0, pbIndex + 1).map(function (pt) { return [pt.lat, pt.lon]; });
-        pbTrail.setLatLngs(filled);
+        // Forward scan from pbLastIdx to find bracketing points
+        var i = pbLastIdx;
+        while (i < pbPoints.length - 1 && pbPoints[i + 1].tst <= pbCurrentTst) { i++; }
+        pbLastIdx = i;
 
-        var remain = pbPoints.slice(pbIndex).map(function (pt) { return [pt.lat, pt.lon]; });
-        pbRemaining.setLatLngs(remain);
+        var p1 = pbPoints[i];
+        var p2 = pbPoints[i + 1];
+        var t1 = p1.tst;
+        var t2 = p2.tst;
+        var fraction = t2 > t1 ? (pbCurrentTst - t1) / (t2 - t1) : 0;
+        var lat = Number(p1.lat) + (Number(p2.lat) - Number(p1.lat)) * fraction;
+        var lon = Number(p1.lon) + (Number(p2.lon) - Number(p1.lon)) * fraction;
+
+        pbMarker.setLatLng([lat, lon]);
+        // Popup shows current point info (closest point ahead)
+        pbMarker.setPopupContent(popupContent(fraction < 0.5 ? p1 : p2));
+
+        // Trail: all points up to current index inclusive, plus interpolated end
+        var trailLls = pbPoints.slice(0, i + 1).map(function (pt) { return [pt.lat, pt.lon]; });
+        trailLls.push([lat, lon]);
+        pbTrail.setLatLngs(trailLls);
+
+        // Remaining: interpolated start plus all future points
+        var remainLls = [[lat, lon]];
+        pbPoints.slice(i + 1).forEach(function (pt) { remainLls.push([pt.lat, pt.lon]); });
+        pbRemaining.setLatLngs(remainLls);
 
         updatePlaybackProgress();
-        var interval = Math.max(10, Math.round(80 / pbSpeed));
-        pbTimer = setTimeout(playbackStep, interval);
+        pbRafId = requestAnimationFrame(playbackTick);
     }
 
     function startPlayback() {
         if (pbState !== 'idle') return;
         if (pbPoints.length < 2) return;
         pbState = 'paused';
-        pbIndex = 0;
+        pbStartTst = pbPoints[0].tst;
+        pbEndTst = pbPoints[pbPoints.length - 1].tst;
 
         markers.clearLayers();
         accuracyCircles.clearLayers();
@@ -448,6 +482,7 @@ function toggleSidebar() {
         var bounds = L.latLngBounds(allLatlngs);
         if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
 
+        pbCurrentTst = pbStartTst;
         updatePlaybackProgress();
         window._togglePlayPause();
     }
@@ -455,22 +490,25 @@ function toggleSidebar() {
     function togglePlayPause() {
         if (pbState === 'playing') {
             pbState = 'paused';
-            clearTimeout(pbTimer);
-            pbTimer = null;
+            cancelAnimationFrame(pbRafId);
+            pbRafId = null;
             document.getElementById('playPauseBtn').textContent = '▶';
         } else if (pbState === 'paused') {
             pbState = 'playing';
+            pbStartWall = Date.now() - (pbCurrentTst - pbStartTst) / pbSpeed * 1000;
+            pbLastIdx = 0;
             document.getElementById('playPauseBtn').textContent = '⏸';
-            playbackStep();
+            playbackTick();
         }
     }
 
     function stopPlayback() {
         var wasPlaying = pbState !== 'idle';
         pbState = 'idle';
-        clearTimeout(pbTimer);
-        pbTimer = null;
-        pbIndex = 0;
+        cancelAnimationFrame(pbRafId);
+        pbRafId = null;
+        pbCurrentTst = null;
+        pbLastIdx = 0;
 
         if (pbMarker) { map.removeLayer(pbMarker); pbMarker = null; }
         if (pbTrail)  { map.removeLayer(pbTrail);  pbTrail = null; }
@@ -490,6 +528,10 @@ function toggleSidebar() {
 
     function setPlaybackSpeed(val) {
         pbSpeed = parseInt(val) || 1;
+        // If playing, resync wall clock so speed change is immediate
+        if (pbState === 'playing') {
+            pbStartWall = Date.now() - (pbCurrentTst - pbStartTst) / pbSpeed * 1000;
+        }
     }
 
     window._startPlayback = startPlayback;
