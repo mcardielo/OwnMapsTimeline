@@ -113,8 +113,9 @@ class Database
             ON locations (device_id, tst)
         ");
 
-        // ── color column (added 2026-06-28) ────────────────────────────────
         self::addColumnIfMissing('devices', 'color', "TEXT NOT NULL DEFAULT ''");
+        self::addColumnIfMissing('locations', 'poi', "TEXT DEFAULT NULL");
+        self::addColumnIfMissing('locations', 'poi_imagename', "TEXT DEFAULT NULL");
 
         // ── events_log ───────────────────────────────────────────────────────
         $pdo->exec("

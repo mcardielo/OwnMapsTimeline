@@ -54,14 +54,14 @@ class ApiController
         }
 
         // Fallback: preset range strings (only if from/to not set)
+        $timeRanges = [
+            '1h'  => 3600,
+            '6h'  => 6 * 3600,
+            '24h' => 24 * 3600,
+            '7d'  => 7 * 86400,
+            '30d' => 30 * 86400,
+        ];
         if (!$from && !$to && $range) {
-            $timeRanges = [
-                '1h'  => 3600,
-                '6h'  => 6 * 3600,
-                '24h' => 24 * 3600,
-                '7d'  => 7 * 86400,
-                '30d' => 30 * 86400,
-            ];
             if (isset($timeRanges[$range])) {
                 $since = time() - $timeRanges[$range];
                 $where .= ' AND l.tst >= ?';
@@ -70,7 +70,7 @@ class ApiController
         }
 
         // ── Query ────────────────────────────────────────────────────────────
-        $sql = "SELECT l.device_id, l.lat, l.lon, l.tst, l.acc, l.alt, l.vel, l.batt, l.bs, l.conn, l.t, l.vac, l.tag, d.name AS device_name, d.tid, d.color
+        $sql = "SELECT l.id, l.device_id, l.lat, l.lon, l.tst, l.acc, l.alt, l.vel, l.batt, l.bs, l.conn, l.t, l.vac, l.tag, l.poi, l.poi_imagename, d.name AS device_name, d.tid, d.color
                 FROM locations l
                 JOIN devices d ON l.device_id = d.id
                 WHERE {$where}
@@ -91,10 +91,24 @@ class ApiController
             );
         }
 
+        // POIs: always query all POI locations (device-independent)
+        $poiWhere = "l.poi IS NOT NULL AND l.poi != '' AND l.device_id IN (SELECT id FROM devices WHERE user_id = ?)";
+        $poiParams = [$userId];
+
+        $pois = Database::query(
+            "SELECT l.id, l.lat, l.lon, l.tst, l.acc, l.poi, l.poi_imagename, d.name AS device_name, d.tid, d.color
+             FROM locations l
+             JOIN devices d ON l.device_id = d.id
+             WHERE {$poiWhere}
+             ORDER BY l.tst DESC",
+            $poiParams
+        );
+
         header('Content-Type: application/json');
         echo json_encode([
             'ok'             => true,
             'points'         => $rows,
+            'pois'           => $pois,
             'count'          => count($rows),
             'original_count' => $originalCount,
             'range'          => $rangeData,
@@ -189,6 +203,46 @@ class ApiController
 
         header('Content-Type: application/json');
         echo json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    // ── GET /api/poi-image ──────────────────────────────────────────────────
+    /**
+     * Serve POI image on-demand from the raw_data JSON.
+     * Protected (no auth exception needed — browser sends session/cookies on <img> load).
+     *
+     * Query params: id (location ID)
+     */
+    public static function poiImage(array $query = [], array $body = []): void
+    {
+        $id = $query['id'] ?? null;
+        if (!$id || !is_numeric($id)) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Missing or invalid id']);
+            exit;
+        }
+
+        $row = Database::queryOne(
+            'SELECT raw_data FROM locations WHERE id = ?',
+            [(int) $id]
+        );
+
+        if (!$row || !$row['raw_data']) {
+            http_response_code(404);
+            exit;
+        }
+
+        $data = json_decode($row['raw_data'], true);
+        if (!$data || empty($data['image'])) {
+            http_response_code(404);
+            exit;
+        }
+
+        $image = $data['image'];
+        header('Content-Type: image/jpeg');
+        header('Cache-Control: public, max-age=31536000, immutable');
+        echo base64_decode($image);
         exit;
     }
 

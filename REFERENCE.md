@@ -128,6 +128,58 @@ Features:
 - Points sorted by tst ASC
 - Each point now includes `color` from the device
 
+### POST /webhook — HTTP Friends
+
+When a device publishes a location via HTTP, the webhook responds with the latest
+location of **all other devices** owned by the same user. The OwnTracks app displays
+these as "friends" on its map.
+
+**Response format** (OwnTracks HTTP mode spec — JSON array of `_type` objects):
+```json
+[
+  {"_type": "location", "tid": "Phone", "lat": 19.4, "lon": -99.1, "tst": ..., ...},
+  {"_type": "card",    "tid": "Phone", "name": "Phone"},
+  {"_type": "location", "tid": "Tablet", "lat": 19.5, "lon": -99.2, "tst": ..., ...},
+  {"_type": "card",    "tid": "Tablet", "name": "Tablet"}
+]
+```
+
+**How it works:**
+1. Device authenticates via `?tid=TID&token=***` in URL
+2. Location/event stored normally
+3. `getFriendLocations()` queries latest `raw_data` for each sibling device (same `user_id`)
+4. Each location gets `tid` overwritten with the device's `name` from DB (friendly label)
+5. A `_type: "card"` is included per friend so the app shows the full name
+6. Response is a JSON array (empty `[]` if no siblings)
+
+**Limitation:** Friends only update when the receiving device publishes its own location.
+No real-time push — this is inherent to OwnTracks HTTP mode (vs MQTT pub/sub).
+
+**Related docs:** <https://owntracks.org/booklet/tech/http/> <https://owntracks.org/booklet/tech/json/>
+
+### GET /api/poi-image
+
+Serves a POI image on-demand from the `raw_data` JSON stored at ingest time.
+No filesystem duplication — base64 decoded on-the-fly.
+
+- `GET /api/poi-image?id=LOCATION_ID`
+- Returns `image/jpeg` with long cache headers
+- Protected normally (browser sends cookies on `<img>` load)
+
+### POI rendering
+
+- **Toggle** 📍 Show POIs in sidebar (persisted in `localStorage.ot_show_pois`, default off)
+- POIs are **device-independent** — always queried from all user devices, regardless of filter
+- Rendered as 📍 pin markers (`L.divIcon`, 36×36, 24px font) in a separate `poiMarkers` featureGroup
+- **Not** shown on device routes (routes keep circleMarkers)
+- Hidden during playback
+- API includes a `pois` array in the response with all POI locations (filtered: `poi IS NOT NULL AND poi != ''`)
+- **Popup (minimal)**: date, POI name + image (if `poi_imagename` set), lat, lon, accuracy, device
+- Image capped at `max-height: 200px` in popup
+- POI is sent once-only by OwnTracks (unlike tags which persist)
+
+**Related docs:** <https://owntracks.org/booklet/features/poi/>
+
 ---
 
 ## Map (dashboard.js)
@@ -137,6 +189,7 @@ Features:
 - `markers` — `L.featureGroup()` for circleMarkers (start/end/mid points)
 - `accuracyCircles` — `L.featureGroup()` for accuracy radius circles (toggleable, interactive:false)
 - `speedSegments` — `L.featureGroup()` for speed-colored mini-polylines (toggleable, interactive:false)
+- `poiMarkers` — `L.featureGroup()` for POI pin markers (toggleable)
 - `polylines[]` — array of `L.polyline` for each device's track
 
 ### Point rendering
@@ -241,7 +294,7 @@ Two modes via `AUTH_MODE` env var:
 - **Exit early**: API methods call `exit;` after JSON output
 - **Redirect pattern**: `header('Location: ...', true, 302); exit;`
 - **JS modules**: IIFE scope for map engine, global functions for UI controls
-- **localStorage keys**: `ot_selected_device`, `ot_sidebar_collapsed`, `ot_show_accuracy`, `ot_show_speed`
+- **localStorage keys**: `ot_selected_device`, `ot_sidebar_collapsed`, `ot_show_accuracy`, `ot_show_speed`, `ot_show_pois`
 
 ---
 

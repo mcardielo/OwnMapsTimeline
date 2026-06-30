@@ -81,8 +81,9 @@ function toggleSidebar() {
 
 // ── Map & playback engine ──────────────────────────────────────────────────
 
+var map;
 (function () {
-    var map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
+    map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://osm.org/copyright">OSM</a>',
         maxZoom: 19
@@ -91,6 +92,7 @@ function toggleSidebar() {
     var markers = L.featureGroup().addTo(map);
     var accuracyCircles = L.featureGroup().addTo(map);
     var speedSegments = L.featureGroup().addTo(map);
+    var poiMarkers = L.featureGroup().addTo(map);
     var polylines = [];
     var currentBounds = null;
     var isLoading = false;
@@ -114,6 +116,15 @@ function toggleSidebar() {
         '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
         '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
     ];
+
+    /** Custom icon for POI markers */
+    var poiIcon = L.divIcon({
+        className: 'poi-marker',
+        html: '<div class="poi-marker-inner">📍</div>',
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+        popupAnchor: [0, -18]
+    });
 
     /** Map velocity (km/h) to a color: green → yellow → red */
     function speedToColor(vel) {
@@ -155,9 +166,26 @@ function toggleSidebar() {
     function popupContent(p) {
         var dt = new Date(p.tst * 1000).toLocaleString();
         var html = '<b>' + dt + '</b>';
+        var isPoi = !!p.poi;
+
+        // POI: show name + image at the top
+        if (isPoi) {
+            html += '<div style="margin-top:4px;font-weight:bold;color:#d97706">📍 ' + escapeHtml(p.poi) + '</div>';
+            if (p.poi_imagename && p.id) {
+                html += '<div style="margin:4px 0"><img src="/api/poi-image?id=' + p.id + '" style="max-width:100%;max-height:200px;border-radius:4px" alt="POI image" /></div>';
+            }
+        }
+
         html += '<br>Latitude: ' + Number(p.lat).toFixed(6);
         html += '<br>Longitude: ' + Number(p.lon).toFixed(6);
         if (p.acc != null) html += '<br>Accuracy: ' + Number(p.acc).toFixed(1) + ' m';
+
+        // POI popup: minimal (lat/lon/acc/device only)
+        if (isPoi) {
+            if (p.device_name) html += '<br>Device: ' + escapeHtml(p.device_name);
+            return html;
+        }
+
         if (p.alt != null) html += '<br>Altitude: ' + Math.round(p.alt) + ' m';
         if (p.vac != null) html += '<br>Vertical accuracy: ' + Math.round(p.vac) + ' m';
         if (p.vel != null) html += '<br>Velocity: ' + Number(p.vel).toFixed(0) + ' km/h';
@@ -200,6 +228,7 @@ function toggleSidebar() {
             markers.clearLayers();
             accuracyCircles.clearLayers();
             speedSegments.clearLayers();
+            poiMarkers.clearLayers();
             polylines.forEach(function (pl) { map.removeLayer(pl); });
             polylines = [];
 
@@ -301,6 +330,15 @@ function toggleSidebar() {
                 }
             });
 
+            // POI markers
+            if (data.pois && data.pois.length > 0) {
+                data.pois.forEach(function (p) {
+                    L.marker([p.lat, p.lon], {
+                        icon: poiIcon
+                    }).addTo(poiMarkers).bindPopup(popupContent(p));
+                });
+            }
+
             document.getElementById('legend').innerHTML = legendHtml;
 
             if (fitBounds || !currentBounds) {
@@ -384,6 +422,15 @@ function toggleSidebar() {
             if (legend) legend.classList.add('hidden');
         }
     };
+    window._togglePois = function () {
+        var on = document.getElementById('showPois').checked;
+        try { localStorage.setItem('ot_show_pois', on ? '1' : '0'); } catch (e) {}
+        if (on) {
+            map.addLayer(poiMarkers);
+        } else {
+            map.removeLayer(poiMarkers);
+        }
+    };
 
     // ── Playback engine ────────────────────────────────────────────────────
 
@@ -458,6 +505,7 @@ function toggleSidebar() {
         markers.clearLayers();
         accuracyCircles.clearLayers();
         speedSegments.clearLayers();
+        poiMarkers.clearLayers();
         polylines.forEach(function (pl) { map.removeLayer(pl); });
         polylines = [];
 
@@ -594,6 +642,17 @@ function toggleSidebar() {
         } else {
             map.removeLayer(speedSegments);
             if (legend) legend.classList.add('hidden');
+        }
+    } catch (e) {}
+
+    // Restore POI toggle (default: off)
+    try {
+        var showPoi = localStorage.getItem('ot_show_pois');
+        if (showPoi === '1') {
+            document.getElementById('showPois').checked = true;
+            map.addLayer(poiMarkers);
+        } else {
+            map.removeLayer(poiMarkers);
         }
     } catch (e) {}
 })();

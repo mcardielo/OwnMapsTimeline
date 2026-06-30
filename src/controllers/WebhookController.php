@@ -97,9 +97,9 @@ class WebhookController
     {
         Database::insert(
             'INSERT INTO locations
-                (device_id, lat, lon, tst, acc, alt, vac, vel, batt, bs, conn, t, tag, raw_data)
+                (device_id, lat, lon, tst, acc, alt, vac, vel, batt, bs, conn, t, tag, poi, poi_imagename, raw_data)
             VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 $deviceId,
                 $data['lat'] ?? null,
@@ -114,6 +114,8 @@ class WebhookController
                 $data['conn'] ?? null,
                 $data['t'] ?? null,
                 $data['tag'] ?? null,
+                $data['poi'] ?? null,
+                $data['imagename'] ?? null,
                 json_encode($data),
             ]
         );

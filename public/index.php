@@ -36,6 +36,7 @@ $routes = [
         '/import'    => 'protected:ImportController::form',
         // API (protected)
         '/api/locations' => 'protected:ApiController::locations',
+        '/api/poi-image' => 'protected:ApiController::poiImage',
         '/api/device-config' => 'ApiController::deviceConfig', // public: validated by tid+token
     ],
     'POST' => [
