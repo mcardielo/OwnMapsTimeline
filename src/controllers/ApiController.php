@@ -33,6 +33,7 @@ class ApiController
         $from      = $query['from'] ?? null;
         $to        = $query['to'] ?? null;
         $range     = $query['range'] ?? null;
+        $tag       = $query['tag'] ?? null;
 
         // Build WHERE
         $where  = 'l.device_id IN (SELECT id FROM devices WHERE user_id = ?)';
@@ -41,6 +42,12 @@ class ApiController
         if ($deviceId && $deviceId !== 'all') {
             $where .= ' AND l.device_id = ?';
             $params[] = (int) $deviceId;
+        }
+
+        // Tag filter
+        if ($tag && $tag !== '') {
+            $where .= ' AND l.tag = ?';
+            $params[] = $tag;
         }
 
         // Time range: from/to timestamps take priority
@@ -92,23 +99,51 @@ class ApiController
         }
 
         // POIs: always query all POI locations (device-independent)
-        $poiWhere = "l.poi IS NOT NULL AND l.poi != '' AND l.device_id IN (SELECT id FROM devices WHERE user_id = ?)";
-        $poiParams = [$userId];
-
         $pois = Database::query(
             "SELECT l.id, l.lat, l.lon, l.tst, l.acc, l.poi, l.poi_imagename, d.name AS device_name, d.tid, d.color
              FROM locations l
              JOIN devices d ON l.device_id = d.id
-             WHERE {$poiWhere}
+             WHERE l.poi IS NOT NULL AND l.poi != ''
+               AND l.device_id IN (SELECT id FROM devices WHERE user_id = ?)
              ORDER BY l.tst DESC",
-            $poiParams
+            [$userId]
         );
+
+        // Tags: distinct tags for this user (device-dependent)
+        $tagWhere = 'd.user_id = ? AND l.tag IS NOT NULL AND l.tag != \'\'';
+        $tagParams = [$userId];
+        if ($deviceId && $deviceId !== 'all') {
+            $tagWhere .= ' AND l.device_id = ?';
+            $tagParams[] = (int) $deviceId;
+        }
+        $tags = Database::query(
+            "SELECT DISTINCT l.tag
+             FROM locations l
+             JOIN devices d ON l.device_id = d.id
+             WHERE {$tagWhere}
+             ORDER BY l.tag ASC",
+            $tagParams
+        );
+
+        // Tag range: min/max tst for the filtered tag (for auto-setting date pickers)
+        $tagRange = null;
+        if ($tag && $tag !== '') {
+            $tagRange = Database::queryOne(
+                "SELECT MIN(l.tst) AS min_tst, MAX(l.tst) AS max_tst
+                 FROM locations l
+                 JOIN devices d ON l.device_id = d.id
+                 WHERE d.user_id = ? AND l.tag = ?",
+                [$userId, $tag]
+            );
+        }
 
         header('Content-Type: application/json');
         echo json_encode([
             'ok'             => true,
             'points'         => $rows,
             'pois'           => $pois,
+            'tags'           => array_column($tags, 'tag'),
+            'tag_range'      => $tagRange,
             'count'          => count($rows),
             'original_count' => $originalCount,
             'range'          => $rangeData,

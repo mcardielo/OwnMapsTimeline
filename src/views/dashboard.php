@@ -25,6 +25,9 @@
             <option value="<?= $d['id'] ?>"><?= View::esc($d['name']) ?> (<?= View::esc($d['tid']) ?>)</option>
         <?php endforeach; ?>
     </select>
+    <select id="tagFilter" onchange="onTagChange()" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-purple-500">
+        <option value="">🏷️ All tags</option>
+    </select>
     <div class="mb-2">
         <div class="flex gap-2 text-xs mb-1 items-center">
             <button onclick="shiftDay(-1)" title="-1 day" class="bg-gray-100 hover:bg-gray-200 rounded px-1 py-0.5 transition">◀</button>
@@ -62,11 +65,11 @@
         <div id="speedLegend" class="hidden mt-1 text-xs text-gray-500">
             <div class="flex items-center gap-1">
                 <span>🐢</span>
-                <div class="h-2 flex-1 rounded" style="background:linear-gradient(to right, #00ff00, #ffff00, #ff0000)"></div>
+                <div class="h-2 flex-1 rounded" style="background:linear-gradient(to right, #46aaff, #00ff00, #ffff00, #ff0000)"></div>
                 <span>🐇</span>
             </div>
             <div class="flex justify-between text-[10px] text-gray-400">
-                <span>0</span><span>60 km/h</span><span>120+</span>
+                <span>0</span><span>20</span><span>60</span><span>120+</span>
             </div>
         </div>
     </div>

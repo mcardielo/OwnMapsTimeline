@@ -36,7 +36,7 @@ RUN { \
     echo "upload_max_filesize = 16M"; \
     echo "post_max_size = 16M"; \
     echo "date.timezone = __TZ_PLACEHOLDER__"; \
-    echo "memory_limit = 128M"; \
+    echo "memory_limit = 2G"; \
     echo "max_execution_time = 60"; \
     echo "opcache.enable = 1"; \
     echo "opcache.memory_consumption = 64"; \

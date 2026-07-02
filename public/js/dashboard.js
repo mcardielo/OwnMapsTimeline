@@ -13,11 +13,32 @@ function disableAutoRefresh() {
 function onDeviceChange() {
     var val = document.getElementById('deviceFilter').value;
     try { localStorage.setItem('ot_selected_device', val); } catch (e) {}
+    document.getElementById('tagFilter').value = '';
     if (window._mapLoadData) window._mapLoadData(true);
+}
+
+async function onTagChange() {
+    var tag = document.getElementById('tagFilter').value;
+    // When selecting a tag, auto-set date pickers to the tag's range
+    if (tag) {
+        var deviceId = document.getElementById('deviceFilter').value;
+        var url = '/api/locations?tag=' + encodeURIComponent(tag) + '&limit=1';
+        if (deviceId !== 'all') url += '&device_id=' + deviceId;
+        try {
+            var resp = await fetch(url);
+            var data = await resp.json();
+            if (data.tag_range && data.tag_range.min_tst) {
+                document.getElementById('timeFrom').value = tstToLocalDatetime(data.tag_range.min_tst);
+                document.getElementById('timeTo').value = tstToLocalDatetime(data.tag_range.max_tst);
+            }
+        } catch (e) {}
+    }
+    applyFilters();
 }
 
 function resetFilters() {
     var now = new Date();
+    document.getElementById('tagFilter').value = '';
     document.getElementById('timeFrom').value = fmtLocalDatetime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0));
     document.getElementById('timeTo').value   = fmtLocalDatetime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0));
     document.getElementById('autoRefresh').checked = true;
@@ -126,20 +147,25 @@ var map;
         popupAnchor: [0, -18]
     });
 
-    /** Map velocity (km/h) to a color: green → yellow → red */
+    /** Map velocity (km/h) to a color: blue(0) → green(20) → yellow(60) → red(120) */
     function speedToColor(vel) {
         var v = Math.max(0, Math.min(120, Number(vel) || 0));
-        var ratio = v / 120;  // 0=green, 0.5=yellow, 1=red
         var r, g, b;
-        if (ratio < 0.5) {
-            // green → yellow
-            var s = ratio * 2;
+        if (v <= 20) {
+            // sky blue(70,170,255) → green(0,255,0)
+            var s = v / 20;
+            r = Math.round(70 * (1 - s));
+            g = Math.round(170 + 85 * s);
+            b = Math.round(255 * (1 - s));
+        } else if (v <= 60) {
+            // green(0,255,0) → yellow(255,255,0)
+            var s = (v - 20) / 40;
             r = Math.round(255 * s);
             g = 255;
             b = 0;
         } else {
-            // yellow → red
-            var s = (ratio - 0.5) * 2;
+            // yellow(255,255,0) → red(255,0,0)
+            var s = (v - 60) / 60;
             r = 255;
             g = Math.round(255 * (1 - s));
             b = 0;
@@ -213,10 +239,12 @@ var map;
         if (showSpinner !== false) showLoading();
 
         var deviceId = document.getElementById('deviceFilter').value;
+        var tag = document.getElementById('tagFilter').value;
         var fromEl = document.getElementById('timeFrom');
         var toEl = document.getElementById('timeTo');
         var url = '/api/locations?';
         if (deviceId !== 'all') url += 'device_id=' + deviceId + '&';
+        if (tag) url += 'tag=' + encodeURIComponent(tag) + '&';
         if (fromEl.value) url += 'from=' + Math.floor(new Date(fromEl.value).getTime() / 1000) + '&';
         if (toEl.value) url += 'to=' + Math.floor(new Date(toEl.value).getTime() / 1000) + '&';
 
@@ -224,6 +252,30 @@ var map;
             var resp = await fetch(url);
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             var data = await resp.json();
+
+            // Populate tag dropdown
+            var tagSel = document.getElementById('tagFilter');
+            var tags = data.tags || [];
+            var currentTag = tagSel.value;
+            var existing = [];
+            for (var ti = 1; ti < tagSel.options.length; ti++) existing.push(tagSel.options[ti].value);
+            var needsUpdate = tags.length !== existing.length || !tags.every(function(t, i) { return t === existing[i]; });
+            if (needsUpdate) {
+                tagSel.innerHTML = '<option value="">🏷️ All tags</option>';
+                tags.forEach(function(t) {
+                    var opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = '🏷️ ' + t;
+                    tagSel.appendChild(opt);
+                });
+            }
+            tagSel.value = currentTag || '';
+
+            // Auto-set date pickers to tag range when filtering by tag
+            if (data.tag_range && data.tag_range.min_tst && data.tag_range.max_tst) {
+                document.getElementById('timeFrom').value = tstToLocalDatetime(data.tag_range.min_tst);
+                document.getElementById('timeTo').value = tstToLocalDatetime(data.tag_range.max_tst);
+            }
 
             markers.clearLayers();
             accuracyCircles.clearLayers();
@@ -505,6 +557,9 @@ var map;
         markers.clearLayers();
         accuracyCircles.clearLayers();
         speedSegments.clearLayers();
+        document.getElementById('showSpeed').checked = false;
+        try { localStorage.setItem('ot_show_speed', '0'); } catch (e) {}
+        document.getElementById('speedLegend').classList.add('hidden');
         poiMarkers.clearLayers();
         polylines.forEach(function (pl) { map.removeLayer(pl); });
         polylines = [];
