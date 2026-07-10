@@ -258,9 +258,28 @@ class ApiController
             exit;
         }
 
+        // Resolve user_id (same pattern as locations())
+        $authMode = getenv('AUTH_MODE') ?: 'local';
+        $username = $_SESSION['username'];
+
+        if ($authMode === 'authelia') {
+            $dbUser = Database::queryOne('SELECT id FROM users WHERE username = ?', [$username]);
+            $userId = $dbUser['id'] ?? null;
+        } else {
+            $userId = $_SESSION['user_id'];
+        }
+
+        if (!$userId) {
+            http_response_code(403);
+            exit;
+        }
+
+        // Validate that the POI belongs to a device owned by this user
         $row = Database::queryOne(
-            'SELECT raw_data FROM locations WHERE id = ?',
-            [(int) $id]
+            'SELECT l.raw_data FROM locations l
+             JOIN devices d ON l.device_id = d.id
+             WHERE l.id = ? AND d.user_id = ?',
+            [(int) $id, $userId]
         );
 
         if (!$row || !$row['raw_data']) {

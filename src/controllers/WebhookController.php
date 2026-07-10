@@ -147,29 +147,33 @@ class WebhookController
      */
     private static function getFriendLocations(int $userId, int $excludeDeviceId): array
     {
-        $devices = Database::query(
-            'SELECT id, tid, name FROM devices WHERE user_id = ? AND id != ?',
+        // Single query: latest location per device using a correlated subquery
+        $rows = Database::query(
+            'SELECT d.id, d.tid, d.name, l.raw_data
+             FROM devices d
+             LEFT JOIN locations l ON l.id = (
+                 SELECT l2.id FROM locations l2
+                 WHERE l2.device_id = d.id
+                 ORDER BY l2.tst DESC LIMIT 1
+             )
+             WHERE d.user_id = ? AND d.id != ?',
             [$userId, $excludeDeviceId]
         );
 
         $friends = [];
-        foreach ($devices as $dev) {
-            $latest = Database::queryOne(
-                'SELECT raw_data FROM locations WHERE device_id = ? ORDER BY tst DESC LIMIT 1',
-                [$dev['id']]
-            );
-            if ($latest && $latest['raw_data']) {
-                $location = json_decode($latest['raw_data'], true);
+        foreach ($rows as $row) {
+            if ($row['raw_data']) {
+                $location = json_decode($row['raw_data'], true);
                 if ($location && isset($location['_type'])) {
                     // Override tid with the device name from DB
-                    $location['tid'] = $dev['name'];
+                    $location['tid'] = $row['name'];
                     $friends[] = $location;
 
                     // Also include a card so the app shows the full name
                     $friends[] = [
                         '_type' => 'card',
-                        'tid'   => $dev['name'],
-                        'name'  => $dev['name'],
+                        'tid'   => $row['name'],
+                        'name'  => $row['name'],
                     ];
                 }
             }
