@@ -28,6 +28,9 @@
     <select id="tagFilter" onchange="onTagChange()" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-purple-500">
         <option value="">🏷️ All tags</option>
     </select>
+    <select id="tzSelect" onchange="onTzChange()" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        <option value="">🌍 Loading timezones...</option>
+    </select>
     <div class="mb-2">
         <div class="flex gap-2 text-xs mb-1 items-center">
             <button onclick="shiftDay(-1)" title="-1 day" class="bg-gray-100 hover:bg-gray-200 rounded px-1 py-0.5 transition">◀</button>
@@ -105,6 +108,7 @@
     </select>
 </div>
 
+<script src="/js/tz-lookup.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/dashboard.js"></script>
 

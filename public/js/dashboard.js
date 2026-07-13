@@ -1,6 +1,6 @@
 /**
  * dashboard.js — Map, filters, playback for the main dashboard view.
- * Requires: Leaflet (loaded via CDN in <head>), app.js
+ * Requires: Leaflet (loaded via CDN in <head>), app.js, tz-lookup.js
  */
 
 // ── Sidebar & filter controls ──────────────────────────────────────────────
@@ -8,6 +8,69 @@
 function disableAutoRefresh() {
     document.getElementById('autoRefresh').checked = false;
     if (window._stopRefresh) window._stopRefresh();
+}
+
+function onTzChange() {
+    var el = document.getElementById('tzSelect');
+    var oldTz = selectedTZ;
+    setTimezone(el.value);
+    // Re-format current date inputs from old tz to new tz
+    var fromEl = document.getElementById('timeFrom');
+    var toEl = document.getElementById('timeTo');
+    if (fromEl.value) fromEl.value = fmtInTz(parseInTz(fromEl.value, oldTz).getTime());
+    if (toEl.value) toEl.value = fmtInTz(parseInTz(toEl.value, oldTz).getTime());
+    applyFilters();
+}
+
+/** Populate the timezone dropdown with zones detected from points.
+ *  If the saved timezone differs from the current one, reformats the date
+ *  inputs and triggers a refetch so the API query uses the correct zone. */
+function populateTimezones(points) {
+    var tzEl = document.getElementById('tzSelect');
+    if (!tzEl || typeof tzlookup === 'undefined') return;
+
+    // Load saved timezone preference (if any)
+    var savedTz = null;
+    try { savedTz = localStorage.getItem('ot_selected_tz'); } catch (e) {}
+
+    var detected = {};
+    // Sample up to 500 points to detect zones (for performance)
+    var step = points.length > 500 ? Math.ceil(points.length / 500) : 1;
+    for (var i = 0; i < points.length; i += step) {
+        var p = points[i];
+        try {
+            var tz = tzlookup(p.lat, p.lon);
+            if (tz) detected[tz] = true;
+        } catch (e) {}
+    }
+    var zones = Object.keys(detected).sort();
+
+    // Always include browser timezone
+    var browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    if (!detected[browserTz]) zones.unshift(browserTz);
+
+    // If saved tz exists and is among detected zones, use it; otherwise use browser tz
+    var activeTz = (savedTz && zones.indexOf(savedTz) !== -1) ? savedTz : browserTz;
+
+    var prevTz = selectedTZ;
+    setTimezone(activeTz);
+
+    var html = '';
+    for (var z = 0; z < zones.length; z++) {
+        var selected = zones[z] === activeTz ? ' selected' : '';
+        html += '<option value="' + zones[z] + '"' + selected + '>' + zones[z] + '</option>';
+    }
+    tzEl.innerHTML = html;
+    tzEl.value = activeTz;
+
+    // If timezone changed, reformat date inputs and refetch
+    if (activeTz !== prevTz) {
+        var fromEl = document.getElementById('timeFrom');
+        var toEl = document.getElementById('timeTo');
+        if (fromEl.value) fromEl.value = fmtInTz(parseInTz(fromEl.value, prevTz).getTime());
+        if (toEl.value) toEl.value = fmtInTz(parseInTz(toEl.value, prevTz).getTime());
+        applyFilters();
+    }
 }
 
 function onDeviceChange() {
@@ -37,19 +100,21 @@ async function onTagChange() {
 }
 
 function resetFilters() {
-    var now = new Date();
     document.getElementById('tagFilter').value = '';
-    document.getElementById('timeFrom').value = fmtLocalDatetime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0));
-    document.getElementById('timeTo').value   = fmtLocalDatetime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0));
+    var epoch = Date.now();
+    var browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    var todayStr = fmtInTz(epoch, browserTz).split('T')[0];
+    document.getElementById('timeFrom').value = todayStr + 'T00:00';
+    document.getElementById('timeTo').value   = todayStr + 'T23:59';
     document.getElementById('autoRefresh').checked = true;
     if (window._mapLoadData) window._mapLoadData(true);
     if (window._resetRefresh) window._resetRefresh();
 }
 
 function setQuickRange(hours) {
-    var n = new Date();
-    document.getElementById('timeFrom').value = fmtLocalDatetime(new Date(n.getTime() - hours * 3600 * 1000));
-    document.getElementById('timeTo').value = fmtLocalDatetime(n);
+    var n = Date.now();
+    document.getElementById('timeFrom').value = fmtInTz(n - hours * 3600 * 1000);
+    document.getElementById('timeTo').value = fmtInTz(n);
     applyFilters();
 }
 
@@ -69,26 +134,23 @@ function toggleAutoRefresh() {
 function shiftDay(delta) {
     var fromEl = document.getElementById('timeFrom');
     var toEl = document.getElementById('timeTo');
-    var fromDate = new Date(fromEl.value);
-    var toDate = new Date(toEl.value);
-    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) return;
+    if (!fromEl.value || !toEl.value) return;
 
-    fromDate.setDate(fromDate.getDate() + delta);
-    toDate.setDate(toDate.getDate() + delta);
-
-    var span = toDate.getTime() - fromDate.getTime();
-    if (fromEl.min && fromDate < new Date(fromEl.min)) {
-        fromDate = new Date(fromEl.min);
-        toDate = new Date(fromDate.getTime() + span);
-    }
-    if (toEl.max && toDate > new Date(toEl.max)) {
-        toDate = new Date(toEl.max);
-        fromDate = new Date(toDate.getTime() - span);
-    }
-
-    fromEl.value = fmtLocalDatetime(fromDate);
-    toEl.value = fmtLocalDatetime(toDate);
+    // Parse the date parts from the datetime-local string directly
+    // and shift by delta days, preserving the time portion
+    fromEl.value = shiftDateStr(fromEl.value, delta);
+    toEl.value = shiftDateStr(toEl.value, delta);
     applyFilters();
+}
+
+/** Shift the date portion of a YYYY-MM-DDTHH:mm string by delta days, keeping time fixed */
+function shiftDateStr(str, delta) {
+    var parts = str.split('T');
+    var dp = parts[0].split('-');
+    var d = new Date(parseInt(dp[0], 10), parseInt(dp[1], 10) - 1, parseInt(dp[2], 10));
+    d.setDate(d.getDate() + delta);
+    var pad = function(n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + parts[1];
 }
 
 function toggleSidebar() {
@@ -190,7 +252,9 @@ var map;
     }
 
     function popupContent(p) {
-        var dt = new Date(p.tst * 1000).toLocaleString();
+        // Use the timezone of the point's own coordinates for display
+        var pointTz = (typeof tzlookup !== 'undefined') ? tzlookup(p.lat, p.lon) : selectedTZ;
+        var dt = fmtTzDisplay(p.tst, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: pointTz });
         var html = '<b>' + dt + '</b>';
         var isPoi = !!p.poi;
 
@@ -245,8 +309,8 @@ var map;
         var url = '/api/locations?';
         if (deviceId !== 'all') url += 'device_id=' + deviceId + '&';
         if (tag) url += 'tag=' + encodeURIComponent(tag) + '&';
-        if (fromEl.value) url += 'from=' + Math.floor(new Date(fromEl.value).getTime() / 1000) + '&';
-        if (toEl.value) url += 'to=' + Math.floor(new Date(toEl.value).getTime() / 1000) + '&';
+        if (fromEl.value) url += 'from=' + Math.floor(parseDatetimeLocal(fromEl.value).getTime() / 1000) + '&';
+        if (toEl.value) url += 'to=' + Math.floor(parseDatetimeLocal(toEl.value).getTime() / 1000) + '&';
 
         try {
             var resp = await fetch(url);
@@ -293,6 +357,9 @@ var map;
                 if (showSpinner !== false) hideLoading();
                 return;
             }
+
+            // Detect timezones from point coordinates
+            populateTimezones(pts);
 
             pts.sort(function (a, b) { return a.tst - b.tst; });
 
@@ -427,9 +494,7 @@ var map;
 
             // Date range
             var fmt = function (ts) {
-                var d = new Date(ts * 1000);
-                var pad = function (n) { return String(n).padStart(2, '0'); };
-                return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+                return fmtTzDisplay(ts, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
             };
             document.getElementById('dateRange').textContent = fmt(pts[0].tst) + ' → ' + fmt(pts[pts.length - 1].tst);
 
@@ -490,9 +555,7 @@ var map;
         if (pbState === 'idle') return;
         var cur = pbCurrentTst || pbStartTst;
         var fmtTime = function (ts) {
-            var d = new Date(ts * 1000);
-            var pad = function (n) { return String(n).padStart(2, '0'); };
-            return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            return fmtTzDisplay(ts, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
         };
         var total = pbEndTst - pbStartTst;
         var pct = total > 0 ? Math.round((cur - pbStartTst) / total * 100) : 0;
@@ -653,11 +716,13 @@ var map;
     }
 
     // ── Init ───────────────────────────────────────────────────────────────
-    var now = new Date();
-    var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    var todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0);
-    document.getElementById('timeFrom').value = fmtLocalDatetime(todayStart);
-    document.getElementById('timeTo').value   = fmtLocalDatetime(todayEnd);
+    // Always start with browser timezone for the initial date range
+    // (saved timezone is applied later when points are loaded)
+    selectedTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    var epoch = Date.now();
+    var todayStr = fmtInTz(epoch).split('T')[0];
+    document.getElementById('timeFrom').value = todayStr + 'T00:00';
+    document.getElementById('timeTo').value   = todayStr + 'T23:59';
 
     try {
         var saved = localStorage.getItem('ot_selected_device');
