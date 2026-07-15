@@ -12,13 +12,7 @@ function disableAutoRefresh() {
 
 function onTzChange() {
     var el = document.getElementById('tzSelect');
-    var oldTz = selectedTZ;
     setTimezone(el.value);
-    // Re-format current date inputs from old tz to new tz
-    var fromEl = document.getElementById('timeFrom');
-    var toEl = document.getElementById('timeTo');
-    if (fromEl.value) fromEl.value = fmtInTz(parseInTz(fromEl.value, oldTz).getTime());
-    if (toEl.value) toEl.value = fmtInTz(parseInTz(toEl.value, oldTz).getTime());
     applyFilters();
 }
 
@@ -63,12 +57,7 @@ function populateTimezones(points) {
     tzEl.innerHTML = html;
     tzEl.value = activeTz;
 
-    // If timezone changed, reformat date inputs and refetch
     if (activeTz !== prevTz) {
-        var fromEl = document.getElementById('timeFrom');
-        var toEl = document.getElementById('timeTo');
-        if (fromEl.value) fromEl.value = fmtInTz(parseInTz(fromEl.value, prevTz).getTime());
-        if (toEl.value) toEl.value = fmtInTz(parseInTz(toEl.value, prevTz).getTime());
         applyFilters();
     }
 }
