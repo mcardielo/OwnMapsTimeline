@@ -65,6 +65,10 @@
             <input type="checkbox" id="showPois" onchange="window._togglePois()" class="w-3 h-3">
             📍 Show POIs
         </label>
+        <label class="flex items-center gap-1 text-xs text-gray-500 mt-1 cursor-pointer">
+            <input type="checkbox" id="satelliteView" onchange="window._toggleSatellite()" class="w-3 h-3">
+            🛰️ Satellite
+        </label>
         <div id="speedLegend" class="hidden mt-1 text-xs text-gray-500">
             <div class="flex items-center gap-1">
                 <span>🐢</span>

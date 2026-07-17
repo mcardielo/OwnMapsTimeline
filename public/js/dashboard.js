@@ -156,10 +156,29 @@ function toggleSidebar() {
 var map;
 (function () {
     map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+
+    // Base layers
+    var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://osm.org/copyright">OSM</a>',
         maxZoom: 19
     }).addTo(map);
+
+    var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '&copy; Esri, Maxar, Earthstar Geographics',
+        maxZoom: 19
+    });
+
+    window._baseLayers = { street: osmLayer, satellite: satelliteLayer };
+    window._toggleSatellite = function() {
+        var checked = document.getElementById('satelliteView').checked;
+        if (checked) {
+            map.removeLayer(window._baseLayers.street);
+            map.addLayer(window._baseLayers.satellite);
+        } else {
+            map.removeLayer(window._baseLayers.satellite);
+            map.addLayer(window._baseLayers.street);
+        }
+    };
 
     var markers = L.featureGroup().addTo(map);
     var accuracyCircles = L.featureGroup().addTo(map);
@@ -323,12 +342,6 @@ var map;
                 });
             }
             tagSel.value = currentTag || '';
-
-            // Auto-set date pickers to tag range when filtering by tag
-            if (data.tag_range && data.tag_range.min_tst && data.tag_range.max_tst) {
-                document.getElementById('timeFrom').value = tstToLocalDatetime(data.tag_range.min_tst);
-                document.getElementById('timeTo').value = tstToLocalDatetime(data.tag_range.max_tst);
-            }
 
             markers.clearLayers();
             accuracyCircles.clearLayers();
