@@ -134,6 +134,60 @@ class Database
             CREATE INDEX IF NOT EXISTS idx_events_log_device_tst
             ON events_log (device_id, tst)
         ");
+
+        // ── places ───────────────────────────────────────────────────────────
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS places (
+                id INTEGER PRIMARY KEY {$autoIncrement},
+                user_id INTEGER NOT NULL,
+                device_id INTEGER NOT NULL,
+                name TEXT DEFAULT NULL,
+                lat REAL NOT NULL,
+                lon REAL NOT NULL,
+                radius REAL NOT NULL DEFAULT 30,
+                visit_count INTEGER NOT NULL DEFAULT 0,
+                total_time INTEGER NOT NULL DEFAULT 0,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+            )
+        ");
+
+        $pdo->exec("
+            CREATE INDEX IF NOT EXISTS idx_places_user_device
+            ON places (user_id, device_id)
+        ");
+
+        // ── places_meta (tracks last analysis timestamp per user) ────────────
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS places_meta (
+                user_id INTEGER NOT NULL,
+                device_id INTEGER NOT NULL,
+                last_analyzed_at INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, device_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+            )
+        ");
+
+        // ── places_settings (detection params per user) ─────────────────────
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS places_settings (
+                user_id INTEGER PRIMARY KEY,
+                epsilon REAL NOT NULL DEFAULT 50,
+                min_visits INTEGER NOT NULL DEFAULT 2,
+                min_duration INTEGER NOT NULL DEFAULT 1200,
+                min_points_per_visit INTEGER NOT NULL DEFAULT 5,
+                merge_distance REAL NOT NULL DEFAULT 70,
+                max_radius REAL NOT NULL DEFAULT 100,
+                merge_gap INTEGER NOT NULL DEFAULT 600,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ");
     }
 
     /** Add a column to a table if it doesn't already exist */

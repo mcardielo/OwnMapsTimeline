@@ -34,8 +34,14 @@ $routes = [
         '/devices'   => 'protected:DeviceController::list',
         '/users'     => 'protected:UserController::list',
         '/import'    => 'protected:ImportController::form',
+        '/places'    => 'protected:PlaceController::list',
         // API (protected)
         '/api/locations' => 'protected:ApiController::locations',
+        '/api/places'        => 'protected:PlaceController::apiList',
+        '/api/places/status' => 'protected:PlaceController::status',
+        '/api/places/log'    => 'protected:PlaceController::log',
+        '/api/places/debug'    => 'protected:PlaceController::debugLog',
+        '/api/places/cron-log' => 'protected:PlaceController::cronLog',
         '/api/poi-image' => 'protected:ApiController::poiImage',
         '/api/device-config' => 'ApiController::deviceConfig', // public: validated by tid+token
     ],
@@ -56,11 +62,25 @@ $routes = [
         '/users/delete'   => 'protected:UserController::delete',
         '/import/preview' => 'protected:ImportController::preview',
         '/import/execute' => 'protected:ImportController::execute',
+        '/places/rename'      => 'protected:PlaceController::rename',
+        '/places/delete'      => 'protected:PlaceController::delete',
+        '/places/recalculate' => 'protected:PlaceController::recalculate',
+        '/places/settings'    => 'protected:PlaceController::saveSettings',
+        '/api/places/detect'  => 'protected:PlaceController::detect',
     ],
 ];
 
 // ── Route matching ──────────────────────────────────────────────────────────
 $handler = $routes[$method][$uri] ?? null;
+
+// Try dynamic routes for /places/{id}
+if ($handler === null && $method === 'GET') {
+    // /places/{id} → PlaceController::detail
+    if (preg_match('#^/places/(\d+)$#', $uri, $m)) {
+        $handler = 'protected:PlaceController::detail';
+        $query['id'] = $m[1];
+    }
+}
 
 if ($handler === null) {
     http_response_code(404);

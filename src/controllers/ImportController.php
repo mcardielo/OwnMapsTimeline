@@ -24,6 +24,7 @@ class ImportController
             'navLinks'  => [
                 ['url' => '/dashboard', 'label' => 'Dashboard'],
                 ['url' => '/devices', 'label' => 'Devices'],
+                ['url' => '/places', 'label' => 'Places'],
             ],
         ], 'layout');
     }
@@ -148,6 +149,7 @@ class ImportController
             'pageTitle'      => 'Import GPX',
             'navLinks'  => [
                 ['url' => '/dashboard', 'label' => 'Dashboard'],
+                ['url' => '/places', 'label' => 'Places'],
                 ['url' => '/devices', 'label' => 'Devices'],
             ],
         ], 'layout');

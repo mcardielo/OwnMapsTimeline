@@ -51,6 +51,8 @@ class DeviceController
             'pageTitle'   => 'Devices',
             'navLinks'    => [
                 ['url' => '/dashboard', 'label' => 'Dashboard'],
+                ['url' => '/places', 'label' => 'Places'],
+                ['url' => '/import', 'label' => 'Import'],
                 $isAdmin ? ['url' => '/users', 'label' => 'Users'] : null,
             ],
         ], 'layout');

@@ -1,5 +1,8 @@
-<div class="max-w-4xl mx-auto px-4 py-8">
-    <h2 class="text-2xl font-bold mb-2">📱 Your Devices</h2>
+<div class="max-w-[1200px] mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-2">
+        <h2 class="text-2xl font-bold">📱 Your Devices</h2>
+        <a href="/dashboard" class="text-blue-600 hover:underline text-sm">← Back to map</a>
+    </div>
     <p class="text-gray-500 text-sm mb-6">Manage devices that report location via OwnTracks webhook</p>
 
     <?php if ($error): ?>
@@ -58,7 +61,7 @@
                     'extendedData' => true,
                     'cmd'           => true,
                     'sub'           => true,
-                    'positions'    => 1000,
+                    'positions'    => 100,
                     'maxHistory'   => 0,
                     'ranging'      => true,
                     'locked'       => false,
@@ -68,7 +71,7 @@
                     'adapt'        => 10,
                     'locatorInterval'     => 60,
                     'locatorDisplacement' => 100,
-                    'downgrade'    => 20,
+                    'downgrade'    => 15,
                     'ignoreStaleLocations' => 0,
                     'ignoreInaccurateLocations' => 50,
                     'waypoints' => [
@@ -139,6 +142,7 @@
                                 <p class="font-medium text-purple-700">Advanced configuration (embedded in QR & link):</p>
                                 <span id="save-status-<?= $device['id'] ?>" class="text-green-600 opacity-0 transition-opacity text-[11px]">✓ Saved</span>
                             </div>
+                            <p class="text-[11px] text-purple-500 mb-2 italic">📍 These parameters are optimized for place detection.</p>
                             <div class="grid grid-cols-2 gap-x-3 gap-y-1.5">
                                 <label class="flex items-center gap-1">
                                     <span class="text-gray-600">Positions:</span>

@@ -32,6 +32,8 @@ class UserController
             'navLinks'    => [
                 ['url' => '/dashboard', 'label' => 'Dashboard'],
                 ['url' => '/devices', 'label' => 'Devices'],
+                ['url' => '/places', 'label' => 'Places'],
+                ['url' => '/import', 'label' => 'Import'],
             ],
         ], 'layout');
     }

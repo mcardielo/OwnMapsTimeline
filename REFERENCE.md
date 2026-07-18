@@ -23,27 +23,35 @@ Request → nginx → public/index.php (Front Controller)
 public/
   index.php              # Front controller: routing + auth + dispatch
   js/
-    app.js               # Shared: fmtLocalDatetime, escapeHtml, tstToLocalDatetime
-    dashboard.js         # Map, filters, playback, auto-refresh, accuracy toggle
+    app.js               # Shared: timezone helpers (fmtInTz, parseInTz), escapeHtml
+    dashboard.js         # Map, filters, playback, auto-refresh, accuracy/speed/places toggle
     devices.js           # Remote config save + color picker
+    tz-lookup.js         # Timezone lookup library (IANA zones from lat/lon)
   css/dashboard.css      # Map + sidebar styles
 src/
   config/database.php    # PDO connection, auto-migrations, helpers (query/queryOne/execute/insert)
   lib/View.php           # Renderer: View::render(template, data, layout)
+  lib/PlaceDetector.php  # DBSCAN + geofence crossing place detection engine
   controllers/
-    ApiController.php    # JSON API: locations, device-config (public)
+    ApiController.php    # JSON API: locations, device-config, poi-image (public endpoints)
     AuthController.php   # Login, setup, logout, isAuthenticated()
     DeviceController.php # CRUD devices, remote config, color update
     ImportController.php # GPX import
     MapController.php    # Dashboard page
+    PlaceController.php  # Places: list, detail, rename, delete, detect, settings, recalculate
     UserController.php   # Admin user management
-    WebhookController.php# OwnTracks HTTP ingest endpoint
+    WebhookController.php# OwnTracks HTTP ingest endpoint + HTTP Friends response
   views/
     layout.php           # HTML shell (Tailwind CDN, nav-aware)
-    dashboard.php        # Map page: sidebar filters + Leaflet map
+    dashboard.php        # Map page: sidebar filters + Leaflet map + places toggle
     devices.php          # Device list: create, manage, QR config, color picker
     import.php           # GPX import form
+    places.php           # Places list: named/unnamed, settings modal, detect buttons
+    place_detail.php     # Place detail: stats, rename, radius edit, visit history
     login.php / setup.php / users.php
+scripts/
+  detect_places.php      # CLI: background detection (incremental or redetect mode)
+  cron_detect_places.php # CLI: cron job — incremental detection for all users
 Dockerfile               # Multi-stage: alpine + nginx + php-fpm
 docker-compose.yml       # Volume mounts, env vars, port mapping
 nginx.conf               # Server block: try_files → index.php
@@ -73,6 +81,18 @@ Prefix `protected:` requires auth (session or Authelia).
 | POST | `/devices/color` | DeviceController::updateColor | ✓ |
 | POST | `/users/create` `/update` `/delete` | UserController | ✓ |
 | POST | `/import/preview` `/execute` | ImportController | ✓ |
+| GET | `/places` | PlaceController::list | ✓ |
+| GET | `/places/{id}` | PlaceController::detail | ✓ |
+| GET | `/api/places` | PlaceController::apiList | ✓ |
+| GET | `/api/places/status` | PlaceController::status | ✓ |
+| GET | `/api/places/log` | PlaceController::log | ✓ |
+| GET | `/api/places/debug` | PlaceController::debugLog | ✓ |
+| GET | `/api/places/cron-log` | PlaceController::cronLog | ✓ |
+| POST | `/api/places/detect` | PlaceController::detect | ✓ |
+| POST | `/places/rename` | PlaceController::rename | ✓ |
+| POST | `/places/delete` | PlaceController::delete | ✓ |
+| POST | `/places/recalculate` | PlaceController::recalculate | ✓ |
+| POST | `/places/settings` | PlaceController::saveSettings | ✓ |
 
 ---
 
@@ -85,9 +105,14 @@ Prefix `protected:` requires auth (session or Authelia).
 **locations** — id, device_id FK, lat, lon, tst, acc, alt, vac, vel, batt, bs, conn, t, tag, raw_data, created_at
 **events_log** — id, device_id FK, event_type, tst, raw_data, created_at
 
+**places** — id, user_id FK, device_id FK, name (nullable), lat, lon, radius, visit_count, total_time, first_seen, last_seen, timestamps
+**places_meta** — user_id FK, device_id FK, last_analyzed_at (composite PK: user_id, device_id)
+**places_settings** — user_id FK (PK), epsilon, min_visits, min_duration (seconds), min_points_per_visit, merge_distance, max_radius, merge_gap (seconds), updated_at
+
 ### Indexes
 - `idx_locations_device_tst` on locations (device_id, tst)
 - `idx_events_log_device_tst` on events_log (device_id, tst)
+- `idx_places_user_device` on places (user_id, device_id)
 
 ### Migrations
 Auto-run on every `Database::connect()`. Uses `addColumnIfMissing()` helper for non-breaking additions.
@@ -179,6 +204,88 @@ No filesystem duplication — base64 decoded on-the-fly.
 - POI is sent once-only by OwnTracks (unlike tags which persist)
 
 **Related docs:** <https://owntracks.org/booklet/features/poi/>
+---
+
+## Places Detection (PlaceDetector.php)
+
+### Algorithm: Modified DBSCAN (no chain expansion)
+
+Standard DBSCAN expands clusters by chaining neighbors of neighbors, which can
+merge an entire day of driving into one giant cluster. OwnMapsTimeline uses a
+modified approach where clusters are bounded by proximity to the **origin point**:
+
+1. Pick an unvisited point (origin)
+2. Find all points within epsilon of the origin (neighbors)
+3. If ≥ minPts neighbors → start cluster with origin
+4. Add each neighbor to cluster (they're within epsilon of origin)
+5. No expansion from non-origin points
+
+This prevents chaining: a route passing through an area doesn't absorb nearby
+stay points into its cluster.
+
+### Geofence crossing for visit detection
+
+Visits are detected by entry/exit of the place radius on the device's points:
+
+1. Iterate all points of the device ordered by time
+2. When a point enters the radius → visit starts
+3. When a point exits the radius → visit ends
+4. Duration = first point outside - first point inside
+5. Visit counts if: point_count ≥ min_points_visit AND duration ≥ min_duration
+
+### Visit merging (merge_gap)
+
+If two consecutive visits are separated by less than `merge_gap` seconds
+(default 600 = 10 min), they are merged into one visit. This prevents GPS
+jitter from splitting a single visit into multiple short ones.
+
+**Filter order:** collect all visits (min_points filter) → merge by gap → filter by min_duration
+
+### Incremental detection
+
+- `places_meta` stores `last_analyzed_at` per (user_id, device_id)
+- Incremental mode: only processes points since `last_analyzed_at - 1 day` (overlap)
+- Re-detect mode: resets `last_analyzed_at = 0`, processes all history
+- Re-detect preserves named places (only deletes unnamed)
+- New clusters that match existing places (within merge_distance) are merged:
+  radius recalculated with ALL accumulated points within the time range
+
+### Settings (per-user, stored in places_settings)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| epsilon | 50m | Max distance between points to group as same place |
+| min_visits | 2 | Min visits for a place to be kept |
+| min_duration | 1200s (20min) | Min time for a visit to count |
+| min_points_per_visit | 5 | Min points inside radius to count as visit |
+| merge_distance | 70m | Max distance to merge nearby places |
+| max_radius | 100m | Clusters bigger than this discarded as routes |
+| merge_gap | 600s (10min) | Merge visits separated by less than this |
+
+### Background execution
+
+- Detection runs via `setsid` + PHP CLI binary (detached from PHP-FPM)
+- Progress tracked in `/tmp/places_detect_{userId}.json`
+- Script: `scripts/detect_places.php` (accepts userId, logFile, mode args)
+- Cron: `scripts/cron_detect_places.php` — runs incremental for all users
+- Cron log: `/tmp/places_cron.log` (visible in Places page, collapsible)
+
+### Map integration
+
+- "Show Places" toggle in sidebar (persisted in localStorage)
+- Places rendered as green semitransparent circles with real radius
+- Filtered by selected device in dropdown
+- URL params: `?zoom=place&id=X` to focus map on a place
+- `?from=...&to=...` applied to date pickers before initial load
+- "View on map" links from visit history open dashboard with date range
+
+### Place detail view
+
+- Stats grid: visits, total time, first/last visit
+- Rename form (name field + Save)
+- Radius edit + Recalculate button (updates radius, reruns getVisits, updates stats)
+- Visit history with date range, duration, point count, device name
+- "View on map" link per visit (opens dashboard with that day's range)
 
 ---
 
@@ -190,6 +297,7 @@ No filesystem duplication — base64 decoded on-the-fly.
 - `accuracyCircles` — `L.featureGroup()` for accuracy radius circles (toggleable, interactive:false)
 - `speedSegments` — `L.featureGroup()` for speed-colored mini-polylines (toggleable, interactive:false)
 - `poiMarkers` — `L.featureGroup()` for POI pin markers (toggleable)
+- `placesLayer` — `L.featureGroup()` for place circle markers (toggleable, green, filtered by device)
 - `polylines[]` — array of `L.polyline` for each device's track
 
 ### Point rendering
@@ -261,7 +369,9 @@ Priority: DB color → palette fallback by index.
 
 ### Config panel
 - Hidden by default, toggled via `⚙️ Remote Config ▾` button
-- Fields: positions, monitoring, adapt, interval, displacement, downgrade %, inaccurate threshold, days, ranging, locked, allowRemoteLocation
+- Fields: positions (default 100), monitoring (default 2=Move), adapt (default 10min), interval (default 60s), displacement (default 100m), downgrade % (default 15), inaccurate threshold (default 50m), days (default -1), ranging (default on), locked, allowRemoteLocation (default on), +Follow region (default on)
+
+> **Note:** These defaults are optimized for place detection. The `adapt=10` setting stops reporting after 10 min of no movement, which creates clear geofence crossings for visit detection.
 - Generates QR code + `owntracks:///config?inline=...` deep link
 - Saves full config JSON to `devices.config_json`
 
@@ -294,7 +404,7 @@ Two modes via `AUTH_MODE` env var:
 - **Exit early**: API methods call `exit;` after JSON output
 - **Redirect pattern**: `header('Location: ...', true, 302); exit;`
 - **JS modules**: IIFE scope for map engine, global functions for UI controls
-- **localStorage keys**: `ot_selected_device`, `ot_sidebar_collapsed`, `ot_show_accuracy`, `ot_show_speed`, `ot_show_pois`
+- **localStorage keys**: `ot_selected_device`, `ot_sidebar_collapsed`, `ot_show_accuracy`, `ot_show_speed`, `ot_show_pois`, `ot_show_places`, `ot_selected_tz`
 
 ---
 

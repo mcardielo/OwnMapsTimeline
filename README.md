@@ -130,7 +130,28 @@ Alternatively, configure manually in the OwnTracks app:
 - **Route playback** — animate your tracks with adjustable speed
 - **GPX import** — bring in tracks from other apps
 - **QR provisioning** — scan to configure OwnTracks with one tap
+- **Places detection** — automatically detect stay points from your location history
+- **Timezone support** — select and display dates/times in any timezone
+- **Satellite view** — toggle between map and satellite imagery
+- **Speed overlay** — color-coded speed segments on your routes
+- **POI markers** — display Points of Interest with images from OwnTracks
+- **Tag filtering** — filter locations by device tags with auto date range
+- **HTTP Friends** — share device locations between OwnTracks apps via webhook response
 - **Single container** — one `docker compose up`, no external dependencies
+
+### Places Detection
+
+OwnMapsTimeline automatically detects "Places" (stay points) from your location history
+using a modified DBSCAN algorithm with geofence crossing for visit detection.
+
+- **Per-device detection** — each device gets its own places, preventing mixed signals
+- **No chain expansion** — clusters are bounded by epsilon around the origin point,
+  preventing route points from chaining into stay points
+- **Geofence crossing** — visits detected by entry/exit of the place radius
+- **Visit merging** — GPS jitter won't split one visit into multiple (configurable gap)
+- **Incremental detection** — only processes new points since last analysis
+- **Configurable** — per-user settings for epsilon, min visits, min duration, merge gap, etc.
+- **Map integration** — places shown as green circles on the map, filterable by device
 
 ## Development
 

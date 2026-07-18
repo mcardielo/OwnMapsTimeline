@@ -188,7 +188,7 @@ class ApiController
         $webhookUrl = "{$scheme}://{$host}/webhook?tid={$tid}&token={$token}";
 
         // Configurable params (with recommended settings)
-        $positions             = isset($query['positions'])             ? (int) $query['positions']             : 1000;
+        $positions             = isset($query['positions'])             ? (int) $query['positions']             : 100;
         $ranging               = isset($query['ranging'])               ? filter_var($query['ranging'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true : true;
         $locked                = isset($query['locked'])                ? filter_var($query['locked'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false : false;
         $monitoring            = isset($query['monitoring'])            ? (int) $query['monitoring']            : 2;
@@ -197,10 +197,10 @@ class ApiController
         $adapt                 = isset($query['adapt'])                 ? (int) $query['adapt']                 : 10;
         $locatorInterval       = isset($query['locatorInterval'])       ? (int) $query['locatorInterval']       : 60;
         $locatorDisplacement   = isset($query['locatorDisplacement'])   ? (int) $query['locatorDisplacement']   : 100;
-        $downgrade             = isset($query['downgrade'])             ? (int) $query['downgrade']             : 20;
+        $downgrade             = isset($query['downgrade'])             ? (int) $query['downgrade']             : 15;
         $maxHistory            = isset($query['maxHistory'])            ? (int) $query['maxHistory']            : 0;
         $ignoreStaleLocations  = isset($query['ignoreStaleLocations'])  ? (int) $query['ignoreStaleLocations']  : 0;
-        $ignoreInaccurateLocations = isset($query['ignoreInaccurateLocations']) ? (int) $query['ignoreInaccurateLocations'] : 0;
+        $ignoreInaccurateLocations = isset($query['ignoreInaccurateLocations']) ? (int) $query['ignoreInaccurateLocations'] : 50;
 
         $config = [
             '_type'          => 'configuration',

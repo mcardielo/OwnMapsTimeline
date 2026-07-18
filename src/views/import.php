@@ -1,6 +1,9 @@
 <?php if ($step === 'upload'): ?>
-<div class="max-w-4xl mx-auto px-4 py-8">
-    <h2 class="text-2xl font-bold mb-2">📂 Import GPX</h2>
+<div class="max-w-[1200px] mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-2">
+        <h2 class="text-2xl font-bold">📂 Import GPX</h2>
+        <a href="/dashboard" class="text-blue-600 hover:underline text-sm">← Back to map</a>
+    </div>
     <p class="text-gray-500 text-sm mb-6">Import location data from a GPX file</p>
 
     <?php if ($error): ?>
@@ -75,8 +78,11 @@ document.getElementById('dropZone').addEventListener('drop', function(e) {
 </script>
 
 <?php elseif ($step === 'preview'): ?>
-<div class="max-w-4xl mx-auto px-4 py-8">
-    <h2 class="text-2xl font-bold mb-2">📂 Preview Import</h2>
+<div class="max-w-[1200px] mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-2">
+        <h2 class="text-2xl font-bold">📂 Preview Import</h2>
+        <a href="/import" class="text-blue-600 hover:underline text-sm">← Back to import</a>
+    </div>
     <p class="text-gray-500 text-sm mb-6">Review before importing into your device</p>
 
     <!-- Summary Cards -->

@@ -67,6 +67,10 @@ function onDeviceChange() {
     try { localStorage.setItem('ot_selected_device', val); } catch (e) {}
     document.getElementById('tagFilter').value = '';
     if (window._mapLoadData) window._mapLoadData(true);
+    // Reload places filtered by selected device
+    if (document.getElementById('showPlaces') && document.getElementById('showPlaces').checked) {
+        loadPlaces();
+    }
 }
 
 async function onTagChange() {
@@ -184,6 +188,7 @@ var map;
     var accuracyCircles = L.featureGroup().addTo(map);
     var speedSegments = L.featureGroup().addTo(map);
     var poiMarkers = L.featureGroup().addTo(map);
+    var placeMarkers = L.featureGroup().addTo(map);
     var polylines = [];
     var currentBounds = null;
     var isLoading = false;
@@ -550,6 +555,72 @@ var map;
             map.removeLayer(poiMarkers);
         }
     };
+    window._togglePlaces = function () {
+        var on = document.getElementById('showPlaces').checked;
+        try { localStorage.setItem('ot_show_places', on ? '1' : '0'); } catch (e) {}
+        if (on) {
+            map.addLayer(placeMarkers);
+            loadPlaces();
+        } else {
+            map.removeLayer(placeMarkers);
+        }
+    };
+
+    /** Fetch and render place markers on the map */
+    async function loadPlaces() {
+        try {
+            var devSel = document.getElementById('deviceFilter').value;
+            var placesUrl = '/api/places';
+            if (devSel && devSel !== 'all') placesUrl += '?device_id=' + encodeURIComponent(devSel);
+            var resp = await fetch(placesUrl);
+            if (!resp.ok) return;
+            var data = await resp.json();
+            if (!data.ok || !data.places) return;
+
+            placeMarkers.clearLayers();
+
+            data.places.forEach(function (p) {
+                var lat = Number(p.lat);
+                var lon = Number(p.lon);
+                var radius = Math.max(15, Number(p.radius) || 30);
+                var name = p.name ? escapeHtml(p.name) : 'Unnamed place';
+                var visits = p.visit_count || 0;
+                var totalTime = p.total_time || 0;
+                var lastSeen = p.last_seen ? fmtTzDisplay(p.last_seen, { year: 'numeric', month: 'short', day: '2-digit' }) : '';
+
+                // Circle marker (green, semi-transparent)
+                var circle = L.circle([lat, lon], {
+                    radius: radius,
+                    color: '#16a34a',
+                    fillColor: '#22c55e',
+                    fillOpacity: 0.15,
+                    weight: 2,
+                    opacity: 0.6
+                });
+
+                // Label with name if named
+                if (p.name) {
+                    circle.bindTooltip(name, { permanent: true, direction: 'top', className: 'place-label', offset: [0, -5] });
+                }
+
+                var popupHtml = '<b><span style="color:#16a34a">📍 ' + name + '</span></b><br>';
+                popupHtml += visits + ' visits<br>';
+                if (totalTime > 0) {
+                    var h = Math.floor(totalTime / 3600);
+                    var m = Math.round((totalTime % 3600) / 60);
+                    popupHtml += 'Total time: ' + (h > 0 ? h + 'h ' : '') + m + 'm<br>';
+                }
+                if (lastSeen) popupHtml += 'Last visit: ' + lastSeen + '<br>';
+                popupHtml += 'Lat: ' + lat.toFixed(5) + ', Lon: ' + lon.toFixed(5) + '<br>';
+                popupHtml += '~' + Math.round(radius) + 'm radius<br>';
+                popupHtml += '<a href="/places/' + p.id + '" style="color:#2563eb">View details \u2192</a>';
+
+                circle.addTo(placeMarkers).bindPopup(popupHtml);
+            });
+        } catch (e) {
+            console.error('Places load error:', e);
+        }
+    }
 
     // ── Playback engine ────────────────────────────────────────────────────
 
@@ -733,6 +804,16 @@ var map;
         }
     } catch (e) {}
 
+    // Apply URL date params before initial load
+    var _urlParams = new URLSearchParams(window.location.search);
+    if (_urlParams.get('from')) {
+        document.getElementById('timeFrom').value = _urlParams.get('from');
+        disableAutoRefresh();
+    }
+    if (_urlParams.get('to')) {
+        document.getElementById('timeTo').value = _urlParams.get('to');
+    }
+
     loadData(true, true);
     scheduleRefresh();
 
@@ -777,4 +858,35 @@ var map;
             map.removeLayer(poiMarkers);
         }
     } catch (e) {}
+
+    // Restore Places toggle (default: off)
+    try {
+        var showPlc = localStorage.getItem('ot_show_places');
+        if (showPlc === '1') {
+            document.getElementById('showPlaces').checked = true;
+            map.addLayer(placeMarkers);
+            loadPlaces();
+        } else {
+            map.removeLayer(placeMarkers);
+        }
+    } catch (e) {}
+
+    // Handle ?zoom=place&id=123 URL parameter
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('zoom') === 'place' && urlParams.get('id')) {
+        var zoomPlaceId = urlParams.get('id');
+        fetch('/api/places').then(function(r) { return r.json(); }).then(function(data) {
+            if (!data.ok || !data.places) return;
+            var place = data.places.find(function(p) { return String(p.id) === String(zoomPlaceId); });
+            if (place) {
+                map.setView([Number(place.lat), Number(place.lon)], 17);
+                // Auto-enable places layer if not already on
+                if (!document.getElementById('showPlaces').checked) {
+                    document.getElementById('showPlaces').checked = true;
+                    map.addLayer(placeMarkers);
+                    loadPlaces();
+                }
+            }
+        }).catch(function(e) { console.error('Zoom to place error:', e); });
+    }
 })();

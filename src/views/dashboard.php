@@ -4,7 +4,8 @@
 
 <div class="nav-bar">
     <a href="/devices" class="stat-pill hover:shadow-md transition text-blue-600">📱 Devices</a>
-    <a href="/import" class="stat-pill hover:shadow-md transition text-green-600">📂 Import</a>
+    <a href="/places" class="stat-pill hover:shadow-md transition text-green-600">📍 Places</a>
+    <a href="/import" class="stat-pill hover:shadow-md transition text-gray-600">📂 Import</a>
     <?php if ($isAdmin): ?>
     <a href="/users" class="stat-pill hover:shadow-md transition text-gray-600">👥 Users</a>
     <?php endif; ?>
@@ -64,6 +65,10 @@
         <label class="flex items-center gap-1 text-xs text-gray-500 mt-1 cursor-pointer">
             <input type="checkbox" id="showPois" onchange="window._togglePois()" class="w-3 h-3">
             📍 Show POIs
+        </label>
+        <label class="flex items-center gap-1 text-xs text-gray-500 mt-1 cursor-pointer">
+            <input type="checkbox" id="showPlaces" onchange="window._togglePlaces()" class="w-3 h-3">
+            🟢 Show Places
         </label>
         <label class="flex items-center gap-1 text-xs text-gray-500 mt-1 cursor-pointer">
             <input type="checkbox" id="satelliteView" onchange="window._toggleSatellite()" class="w-3 h-3">
