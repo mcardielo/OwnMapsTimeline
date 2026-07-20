@@ -126,6 +126,75 @@ class PlaceController
         ], 'layout');
     }
 
+    // ── POST /places/create ─────────────────────────────────────────────────
+    public static function create(array $query = [], array $body = []): void
+    {
+        $userId = self::getUserId();
+        if (!$userId) {
+            http_response_code(403);
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'error' => 'Not authenticated']);
+            exit;
+        }
+
+        $lat = (float) ($body['lat'] ?? $_POST['lat'] ?? 0);
+        $lon = (float) ($body['lon'] ?? $_POST['lon'] ?? 0);
+        $radius = (float) ($body['radius'] ?? $_POST['radius'] ?? 50);
+        $deviceId = (int) ($body['device_id'] ?? $_POST['device_id'] ?? 0);
+        $name = trim($body['name'] ?? $_POST['name'] ?? '');
+
+        // Validate
+        if ($lat == 0 || $lon == 0 || $deviceId == 0) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'error' => 'Missing required fields (lat, lon, device_id)']);
+            exit;
+        }
+        if ($radius < 10 || $radius > 1000) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'error' => 'Radius must be between 10 and 1000 meters']);
+            exit;
+        }
+
+        // Verify device belongs to user
+        $device = Database::queryOne(
+            'SELECT id, name FROM devices WHERE id = ? AND user_id = ?',
+            [$deviceId, $userId]
+        );
+        if (!$device) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'error' => 'Device not found']);
+            exit;
+        }
+
+        // Create the place
+        $placeId = Database::insert(
+            'INSERT INTO places (user_id, device_id, name, lat, lon, radius, visit_count, total_time, first_seen, last_seen)
+             VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 0)',
+            [$userId, $deviceId, $name ?: null, $lat, $lon, $radius]
+        );
+
+        // Search for visits within the given coordinates + radius
+        $result = PlaceDetector::findVisitsForManualPlace($userId, $deviceId, $lat, $lon, $radius);
+
+        if ($result['visit_count'] > 0) {
+            // Update place with found visits
+            Database::execute(
+                'UPDATE places SET visit_count = ?, total_time = ?, first_seen = ?, last_seen = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [$result['visit_count'], $result['total_time'], $result['first_seen'], $result['last_seen'], $placeId]
+            );
+        }
+
+        // Redirect with flash message in query string
+        $msg = $result['visit_count'] > 0
+            ? "✅ {$result['visit_count']} visit(s) found for this place"
+            : '⚠️ No visits found — place created empty. Try adjusting the radius.';
+        header('Location: /places/' . (int) $placeId . '?msg=' . urlencode($msg), true, 302);
+        exit;
+    }
+
     // ── POST /places/{id}/rename ───────────────────────────────────────────
     public static function rename(array $query = [], array $body = []): void
     {

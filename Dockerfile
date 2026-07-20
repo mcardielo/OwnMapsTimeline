@@ -12,6 +12,7 @@ RUN apk add --no-cache --virtual .build-deps \
     nginx \
     supervisor \
     tzdata \
+    dcron \
     && docker-php-ext-install -j$(nproc) \
     pdo_mysql \
     pdo_sqlite \
@@ -21,7 +22,7 @@ RUN apk add --no-cache --virtual .build-deps \
     && rm -rf /var/cache/apk/*
 
 # Create app structure
-RUN mkdir -p /app/data /app/public/assets /app/src/config /app/src/controllers /app/src/views /run/nginx /var/log/supervisor
+RUN mkdir -p /app/data /app/public/assets /app/src/config /app/src/controllers /app/src/views /run/nginx /var/log/supervisor /run/crond /var/spool/cron /etc/crontabs
 
 # Copy app code
 COPY . /app
@@ -52,6 +53,10 @@ RUN { \
     echo 'pm.max_requests = 500'; \
     echo 'request_terminate_timeout = 60s'; \
     } > /usr/local/etc/php-fpm.d/zz-custom.conf
+
+# Crontab
+COPY crontab /etc/crontabs/root
+RUN chmod 600 /etc/crontabs/root
 
 # Supervisor config
 COPY supervisord.conf /etc/supervisord.conf

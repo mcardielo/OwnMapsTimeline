@@ -51,6 +51,13 @@ Then open `http://localhost:8090/setup` and create your admin account.
 - **Database:** SQLite (default) or MySQL
 - **Frontend:** Leaflet.js + TailwindCSS
 
+## Remote Configuration Note
+
+Recent versions of the OwnTracks app have disabled remote configuration via deep links
+and QR codes by default for security reasons. If the QR code or "Open in OwnTracks" link
+doesn't work, open the OwnTracks app → Settings → Remote Control → enable **Allow external configuration**, then
+try again.
+
 ## Links
 
 - [GitHub Repository](https://github.com/mcardielo/OwnMapsTimeline)

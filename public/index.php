@@ -62,6 +62,7 @@ $routes = [
         '/users/delete'   => 'protected:UserController::delete',
         '/import/preview' => 'protected:ImportController::preview',
         '/import/execute' => 'protected:ImportController::execute',
+        '/places/create'      => 'protected:PlaceController::create',
         '/places/rename'      => 'protected:PlaceController::rename',
         '/places/delete'      => 'protected:PlaceController::delete',
         '/places/recalculate' => 'protected:PlaceController::recalculate',

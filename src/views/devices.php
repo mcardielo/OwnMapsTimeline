@@ -142,6 +142,9 @@
                                 <p class="font-medium text-purple-700">Advanced configuration (embedded in QR & link):</p>
                                 <span id="save-status-<?= $device['id'] ?>" class="text-green-600 opacity-0 transition-opacity text-[11px]">✓ Saved</span>
                             </div>
+                            <div class="mb-2 p-2 bg-amber-50 border border-amber-300 rounded text-[11px] text-amber-800">
+                                <strong>⚠️ Important:</strong> Recent versions of the OwnTracks app have disabled remote configuration via deep links and QR codes by default for security. If the QR code or "Open in OwnTracks" link doesn't work, open the OwnTracks app → Settings → Remote Control → enable <strong>Allow external configuration</strong>, then try again.
+                            </div>
                             <p class="text-[11px] text-purple-500 mb-2 italic">📍 These parameters are optimized for place detection.</p>
                             <div class="grid grid-cols-2 gap-x-3 gap-y-1.5">
                                 <label class="flex items-center gap-1">

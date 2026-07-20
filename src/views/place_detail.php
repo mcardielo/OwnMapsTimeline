@@ -15,6 +15,21 @@ function _fmtDateTime2(int $tst): string {
 ?>
 
 <div class="max-w-[1200px] mx-auto px-4 py-8">
+    <!-- Flash message -->
+    <?php $flashMsg = $_GET['msg'] ?? ''; if ($flashMsg): ?>
+    <div class="mb-4 rounded-lg p-3 text-sm <?= str_starts_with($flashMsg, '✅') ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-yellow-50 border border-yellow-200 text-yellow-700' ?>">
+        <?= View::esc($flashMsg) ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- Empty visits notice for manual places -->
+    <?php if ((int) $place['visit_count'] === 0 && (int) $place['first_seen'] === 0): ?>
+    <div class="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
+        📍 This place was created manually and has no visits recorded yet.
+        Try adjusting the radius below to search for nearby visits.
+    </div>
+    <?php endif; ?>
+
     <div class="flex items-center justify-between mb-2">
         <h2 class="text-2xl font-bold">
             <?= $place['name'] ? View::esc($place['name']) : 'Unnamed Place' ?>

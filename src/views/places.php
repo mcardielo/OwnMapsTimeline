@@ -24,6 +24,9 @@ $isIdle = ($detectStatus['status'] ?? 'idle') === 'idle';
     <div class="flex items-center justify-between mb-2">
         <h2 class="text-2xl font-bold">📍 Places</h2>
         <div class="flex items-center gap-3">
+            <button onclick="openAddPlaceModal()" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded text-sm font-medium transition">
+                ➕ Add place
+            </button>
             <?php if ($hasPlaces && !$detecting): ?>
             <button onclick="triggerIncremental()" class="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded text-sm font-medium transition">
                 🔍 Detect new
@@ -207,6 +210,7 @@ $isIdle = ($detectStatus['status'] ?? 'idle') === 'idle';
                         <input type="number" name="min_visits" value="<?= $settings['min_visits'] ?>" min="1" max="50"
                             class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <p class="text-xs text-gray-400 mt-1">Minimum number of visits for a place to be kept. Higher = only frequent places are shown.</p>
+                        <p class="text-xs text-blue-400 mt-0.5">⚠️ Only affects new detections. Existing places are not removed on incremental detect. Run re-detect to apply this filter to existing unnamed places.</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-600 mb-1">Min duration (minutes)</label>
@@ -257,7 +261,78 @@ $isIdle = ($detectStatus['status'] ?? 'idle') === 'idle';
     </div>
 </div>
 
+<!-- Add place modal -->
+<div id="addPlaceModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40" onclick="if(event.target===this)closeAddPlaceModal()">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div class="flex items-center justify-between p-5 border-b border-gray-200">
+            <h2 class="text-lg font-semibold text-gray-700">➕ Add Place Manually</h2>
+            <button onclick="closeAddPlaceModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+        <form method="POST" action="/places/create" class="p-5 space-y-4" onsubmit="return validateAddPlace()">
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Device *</label>
+                <select name="device_id" required class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="" disabled selected>Select a device…</option>
+                    <?php foreach ($devices as $d): ?>
+                        <option value="<?= (int) $d['id'] ?>"><?= View::esc($d['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Latitude *</label>
+                    <input type="number" name="lat" step="0.00001" min="-90" max="90" required
+                           placeholder="e.g. 19.43260"
+                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Longitude *</label>
+                    <input type="number" name="lon" step="0.00001" min="-180" max="180" required
+                           placeholder="e.g. -99.13320"
+                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Radius (meters) *</label>
+                <input type="number" name="radius" value="50" min="10" max="1000" step="5" required
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-400 mt-1">The system will search for visits within this radius.</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Name (optional)</label>
+                <input type="text" name="name" placeholder="e.g. Home, Office, Gym…"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex gap-2 justify-end pt-2">
+                <button type="button" onclick="closeAddPlaceModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2 rounded text-sm font-medium transition">Cancel</button>
+                <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 transition">Create place</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+function openAddPlaceModal() {
+    var modal = document.getElementById('addPlaceModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+function closeAddPlaceModal() {
+    var modal = document.getElementById('addPlaceModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+function validateAddPlace() {
+    var lat = document.querySelector('#addPlaceModal input[name="lat"]').value;
+    var lon = document.querySelector('#addPlaceModal input[name="lon"]').value;
+    var dev = document.querySelector('#addPlaceModal select[name="device_id"]').value;
+    if (!lat || !lon || !dev) {
+        alert('Please fill in device, latitude, and longitude.');
+        return false;
+    }
+    return true;
+}
+
 function openSettingsModal() {
     var modal = document.getElementById('settingsModal');
     modal.classList.remove('hidden');

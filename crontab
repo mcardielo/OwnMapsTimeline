@@ -1,0 +1,2 @@
+# Places detection — daily at midnight (container timezone)
+0 0 * * * php /app/scripts/cron_detect_places.php >> /tmp/places_cron_stdout.log 2>&1

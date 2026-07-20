@@ -434,6 +434,104 @@ class PlaceDetector
         return array_values($visits);
     }
 
+    /**
+     * Find visits for a manual place (given lat/lon/radius/deviceId directly,
+     * without needing a place row first).
+     *
+     * Uses the same geofence crossing logic as getVisits(), but with relaxed
+     * filters: min_visits=1, min_points_visit=1 (any visit counts).
+     *
+     * @return array ['visits' => [...], 'visit_count' => int, 'total_time' => int, 'first_seen' => int, 'last_seen' => int]
+     */
+    public static function findVisitsForManualPlace(int $userId, int $deviceId, float $lat, float $lon, float $radius): array
+    {
+        $settings = self::getSettings($userId);
+        $minPoints = $settings['min_points_visit'];
+        $minDuration = (int) $settings['min_duration'];
+        $mergeGap = (int) $settings['merge_gap'];
+
+        // Get all points for this device
+        $points = Database::query(
+            'SELECT l.id, l.lat, l.lon, l.tst, l.acc, d.id AS device_id, d.name AS device_name
+             FROM locations l
+             JOIN devices d ON l.device_id = d.id
+             WHERE d.user_id = ? AND d.id = ? AND l.lat IS NOT NULL AND l.lon IS NOT NULL
+             ORDER BY l.tst ASC',
+            [$userId, $deviceId]
+        );
+
+        $rawVisits = [];
+        $inVisit = false;
+        $visitStart = null;
+        $visitPoints = 0;
+        $visitDevice = '';
+
+        foreach ($points as $p) {
+            $dist = self::haversine($lat, $lon, (float) $p['lat'], (float) $p['lon']);
+            $inside = ($dist <= $radius);
+
+            if ($inside && !$inVisit) {
+                $inVisit = true;
+                $visitStart = (int) $p['tst'];
+                $visitPoints = 1;
+                $visitDevice = $p['device_name'] ?? '';
+            } elseif ($inside && $inVisit) {
+                $visitPoints++;
+            } elseif (!$inside && $inVisit) {
+                $inVisit = false;
+                if ($visitPoints >= $minPoints) {
+                    $rawVisits[] = [
+                        'start_tst'   => $visitStart,
+                        'end_tst'     => (int) $p['tst'],
+                        'duration'    => (int) $p['tst'] - $visitStart,
+                        'point_count' => $visitPoints,
+                        'device_name' => $visitDevice,
+                        'device_id'   => $p['device_id'],
+                    ];
+                }
+                $visitStart = null;
+                $visitPoints = 0;
+            }
+        }
+
+        // Close open visit at end of data
+        if ($inVisit && $visitPoints >= $minPoints) {
+            $lastTst = (int) $points[count($points) - 1]['tst'];
+            $rawVisits[] = [
+                'start_tst'   => $visitStart,
+                'end_tst'     => $lastTst,
+                'duration'    => $lastTst - $visitStart,
+                'point_count' => $visitPoints,
+                'device_name' => $visitDevice,
+                'device_id'   => null,
+            ];
+        }
+
+        // Merge visits separated by less than merge_gap
+        $merged = self::mergeVisits($rawVisits, $mergeGap);
+
+        // For manual places: apply min_duration filter but NOT min_visits
+        // (even 1 visit is enough for a manually defined place)
+        $visits = array_filter($merged, function ($v) use ($minDuration) {
+            return $v['duration'] >= $minDuration;
+        });
+
+        $visits = array_values($visits);
+        $visitCount = count($visits);
+        $totalTime = array_sum(array_column($visits, 'duration'));
+
+        $firstSeen = $visitCount > 0 ? min(array_column($visits, 'start_tst')) : 0;
+        $lastSeen  = $visitCount > 0 ? max(array_column($visits, 'end_tst')) : 0;
+
+        return [
+            'visits'      => $visits,
+            'visit_count' => $visitCount,
+            'total_time'  => $totalTime,
+            'first_seen'  => $firstSeen,
+            'last_seen'   => $lastSeen,
+        ];
+    }
+
     public static function updateVisitCount(int $placeId, int $count): void
     {
         Database::execute(

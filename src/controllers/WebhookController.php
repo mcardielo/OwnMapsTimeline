@@ -31,24 +31,16 @@ class WebhookController
             exit;
         }
 
-        // 2. Look up device by TID
+        // 2. Look up device by TID + token
         $device = Database::queryOne(
-            'SELECT id, user_id, tid, name, webhook_token FROM devices WHERE tid = ?',
-            [$tid]
+            'SELECT id, user_id, tid, name, webhook_token FROM devices WHERE tid = ? AND webhook_token = ?',
+            [$tid, $token]
         );
 
         if (!$device) {
             http_response_code(404);
             header('Content-Type: application/json');
-            echo json_encode(['error' => 'Unknown tracker ID']);
-            exit;
-        }
-
-        // 3. Validate token
-        if (!hash_equals($device['webhook_token'], $token)) {
-            http_response_code(403);
-            header('Content-Type: application/json');
-            echo json_encode(['error' => 'Invalid token']);
+            echo json_encode(['error' => 'Unknown tracker ID or token']);
             exit;
         }
 

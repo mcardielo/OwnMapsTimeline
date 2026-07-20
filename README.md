@@ -111,10 +111,27 @@ The easiest way to configure your device is from the web UI:
 2. Expand **⚙️ Remote Config** on the device card to adjust tracking settings
 3. Scan the QR code with the OwnTracks app — it sets everything automatically
 
-Alternatively, configure manually in the OwnTracks app:
-- **Mode:** HTTP
-- **Endpoint:** `https://your-host.com/webhook?tid=YOUR_TID&token=YOUR_TOKEN`
-- The TID and token are displayed on the device card in the web UI
+> **⚠️ Remote Configuration Security Change:** Recent versions of the OwnTracks app
+> have disabled remote configuration via deep links and QR codes by default for security
+> reasons. If the QR code or "Open in OwnTracks" link doesn't work, you need to manually
+> enable it first: open the OwnTracks app → Settings → Remote Control → enable **Allow external configuration**,
+> then try again.
+
+Alternatively, configure manually in the OwnTracks app. These values are optimized for
+place detection:
+
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| **Mode** | HTTP | Webhook-based reporting |
+| **URL** | `https://your-host.com/webhook?tid=YOUR_TID&token=YOUR_TOKEN` | Webhook endpoint |
+| **Monitoring** | 2 (Move) | Report on movement, stop when stationary |
+| **Adapt** | 10 min | Stop reporting after 10 min of no movement |
+| **Locator interval** | 60 s | Base interval between reports |
+| **Locator displacement** | 100 m | Min distance to trigger a report |
+| **Downgrade** | 15 % | Reduce accuracy when battery is low |
+| **Ignore inaccurate locations** | 50 m | Filter out poor-accuracy fixes |
+
+The TID and token are displayed on the device card in the web UI.
 
 ## Screenshots
 
