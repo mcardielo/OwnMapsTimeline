@@ -170,19 +170,12 @@ class PlaceDetector
                 foreach ($existingPlaces as &$place) {
                     $dist = self::haversine($cand['lat'], $cand['lon'], $place['lat'], $place['lon']);
                     if ($dist <= $mergeDistance) {
-                        $place['visit_count'] += $cand['visit_count'];
-                        $place['total_time'] += $cand['total_time'];
-                        $place['first_seen'] = min($place['first_seen'], $cand['first_seen']);
-                        $place['last_seen'] = max($place['last_seen'], $cand['last_seen']);
-
-                        // Recalculate centroid + radius with ALL points of this
-                        // device that fall within the current place radius.
-                        // This keeps the radius accurate as new points are added.
+                        // Update centroid + radius with the candidate's points
+                        // (keep the place geometry accurate as new points arrive)
                         $allDevicePoints = Database::query(
                             'SELECT l.lat, l.lon FROM locations l WHERE l.device_id = ? AND l.lat IS NOT NULL AND l.lon IS NOT NULL AND l.tst >= ? AND l.tst <= ?',
-                            [$deviceId, (int) $place['first_seen'] - 3600, (int) $place['last_seen'] + 3600]
+                            [$deviceId, (int) $place['first_seen'] - 3600, max((int) $cand['last_seen'], (int) $place['last_seen']) + 3600]
                         );
-                        // Filter to points within current radius of the place center
                         $placePoints = [];
                         $checkRadius = max((float) $place['radius'], $cand['radius']);
                         foreach ($allDevicePoints as $ap) {
@@ -199,6 +192,18 @@ class PlaceDetector
                             $place['radius'] = max($newRadius, 15);
                         } else {
                             $place['radius'] = max($place['radius'], $cand['radius']);
+                        }
+
+                        // Recalculate visit stats from ALL device points (not
+                        // just the candidate's window). This ensures visit_count,
+                        // total_time, first_seen and last_seen are always
+                        // accurate regardless of the cluster's time window.
+                        $realVisits = self::getVisits((int) $place['id'], $userId);
+                        $place['visit_count'] = count($realVisits);
+                        $place['total_time']  = array_sum(array_column($realVisits, 'duration'));
+                        if (count($realVisits) > 0) {
+                            $place['first_seen'] = min(array_column($realVisits, 'start_tst'));
+                            $place['last_seen']  = max(array_column($realVisits, 'end_tst'));
                         }
 
                         $place['updated_at'] = date('Y-m-d H:i:s');
