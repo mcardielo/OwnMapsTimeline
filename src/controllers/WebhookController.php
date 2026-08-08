@@ -130,16 +130,17 @@ class WebhookController
         );
     }
 
-    // ── Friend locations (other devices of same user) ──────────────────────
+    // ── Friend locations (other devices of same user + shared devices) ───
     /**
-     * Return latest location for each other device owned by the same user.
+     * Return latest location for each other device owned by the same user
+     * PLUS devices that have been shared with this user.
      * OwnTracks app displays these as "friends" on its map.
      *
      * Response format: JSON array of _type objects (OwnTracks HTTP mode spec)
      */
     private static function getFriendLocations(int $userId, int $excludeDeviceId): array
     {
-        // Single query: latest location per device using a correlated subquery
+        // Sibling devices (same user)
         $rows = Database::query(
             'SELECT d.id, d.tid, d.name, l.raw_data
              FROM devices d
@@ -152,20 +153,37 @@ class WebhookController
             [$userId, $excludeDeviceId]
         );
 
+        // Shared devices (devices shared with this user)
+        $sharedRows = Database::query(
+            'SELECT d.id, d.tid, d.name, ds.custom_name, l.raw_data
+             FROM device_shares ds
+             JOIN devices d ON ds.device_id = d.id
+             LEFT JOIN locations l ON l.id = (
+                 SELECT l2.id FROM locations l2
+                 WHERE l2.device_id = d.id
+                 ORDER BY l2.tst DESC LIMIT 1
+             )
+             WHERE ds.shared_with_user_id = ?',
+            [$userId]
+        );
+
         $friends = [];
-        foreach ($rows as $row) {
+        $seenIds = [];
+        foreach (array_merge($rows, $sharedRows) as $row) {
+            if (isset($seenIds[$row['id']])) continue;
+            $seenIds[$row['id']] = true;
             if ($row['raw_data']) {
                 $location = json_decode($row['raw_data'], true);
                 if ($location && isset($location['_type'])) {
-                    // Override tid with the device name from DB
-                    $location['tid'] = $row['name'];
+                    // Use custom_name if set, otherwise device name
+                    $displayName = $row['custom_name'] ?? $row['name'];
+                    $location['tid'] = $displayName;
                     $friends[] = $location;
 
-                    // Also include a card so the app shows the full name
                     $friends[] = [
                         '_type' => 'card',
-                        'tid'   => $row['name'],
-                        'name'  => $row['name'],
+                        'tid'   => $displayName,
+                        'name'  => $displayName,
                     ];
                 }
             }

@@ -165,3 +165,61 @@ function buildConfigFromPanel(panel) {
 
     return config;
 }
+
+// ── Share helpers ──────────────────────────────────────────────────────────
+
+function confirmShare(deviceId) {
+    var input = document.getElementById('share-input-' + deviceId);
+    var username = input.value.trim();
+    if (!username) return false;
+    return confirm('Share this device with "' + username + '"?');
+}
+
+var _shareColorDebounce = {};
+var _shareNameDebounce = {};
+
+function onShareColorChange(input) {
+    var deviceId = input.dataset.shareDevice;
+    var color = input.value;
+
+    if (_shareColorDebounce[deviceId]) clearTimeout(_shareColorDebounce[deviceId]);
+    _shareColorDebounce[deviceId] = setTimeout(function () {
+        fetch('/devices/share-color', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: String(deviceId), color: color })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.status !== 'ok') {
+                console.error('Share color save failed:', data.error);
+            }
+        })
+        .catch(function (err) {
+            console.error('Share color save error:', err);
+        });
+    }, 400);
+}
+
+function onShareNameChange(input) {
+    var deviceId = input.dataset.shareDevice;
+    var name = input.value.trim();
+
+    if (_shareNameDebounce[deviceId]) clearTimeout(_shareNameDebounce[deviceId]);
+    _shareNameDebounce[deviceId] = setTimeout(function () {
+        fetch('/devices/share-color', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: String(deviceId), custom_name: name })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.status !== 'ok') {
+                console.error('Share name save failed:', data.error);
+            }
+        })
+        .catch(function (err) {
+            console.error('Share name save error:', err);
+        });
+    }, 800);
+}

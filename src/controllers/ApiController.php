@@ -35,7 +35,7 @@ class ApiController
         $range     = $query['range'] ?? null;
         $tag       = $query['tag'] ?? null;
 
-        // Build WHERE
+        // Build WHERE — only own devices (shared devices are loaded via /api/shared-locations)
         $where  = 'l.device_id IN (SELECT id FROM devices WHERE user_id = ?)';
         $params = [$userId];
 
@@ -297,6 +297,80 @@ class ApiController
         header('Content-Type: image/jpeg');
         header('Cache-Control: public, max-age=31536000, immutable');
         echo base64_decode($image);
+        exit;
+    }
+
+    // ── GET /api/shared-locations ──────────────────────────────────────────
+    /**
+     * Returns latest location for each device shared with the current user.
+     * Lightweight — only the most recent point per shared device.
+     */
+    public static function sharedLocations(array $query = [], array $body = []): void
+    {
+        $authMode = getenv('AUTH_MODE') ?: 'local';
+        $username = $_SESSION['username'];
+
+        if ($authMode === 'authelia') {
+            $dbUser = Database::queryOne('SELECT id FROM users WHERE username = ?', [$username]);
+            $userId = $dbUser['id'] ?? null;
+        } else {
+            $userId = $_SESSION['user_id'];
+        }
+
+        if (!$userId) {
+            http_response_code(403);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'User not found']);
+            exit;
+        }
+
+        $rows = Database::query(
+            'SELECT d.id AS device_id, d.name AS device_name, d.tid, d.color,
+                    ds.custom_color, ds.custom_name, u.username AS owner_name,
+                    l.lat, l.lon, l.tst, l.acc, l.alt, l.vel, l.batt, l.bs, l.conn, l.t, l.vac, l.tag
+             FROM device_shares ds
+             JOIN devices d ON ds.device_id = d.id
+             JOIN users u ON d.user_id = u.id
+             LEFT JOIN locations l ON l.id = (
+                 SELECT l2.id FROM locations l2
+                 WHERE l2.device_id = d.id
+                 ORDER BY l2.tst DESC LIMIT 1
+             )
+             WHERE ds.shared_with_user_id = ?
+             ORDER BY d.name ASC',
+            [$userId]
+        );
+
+        $points = [];
+        foreach ($rows as $row) {
+            if ($row['lat'] === null) continue; // no location data yet
+            $points[] = [
+                'device_id'   => (int) $row['device_id'],
+                'device_name' => $row['custom_name'] ?: $row['device_name'],
+                'tid'         => $row['tid'],
+                'color'       => $row['custom_color'] ?: $row['color'],
+                'owner_name'  => $row['owner_name'],
+                'lat'         => (float) $row['lat'],
+                'lon'         => (float) $row['lon'],
+                'tst'         => (int) $row['tst'],
+                'acc'         => $row['acc'] !== null ? (float) $row['acc'] : null,
+                'alt'         => $row['alt'] !== null ? (float) $row['alt'] : null,
+                'vel'         => $row['vel'] !== null ? (float) $row['vel'] : null,
+                'batt'        => $row['batt'] !== null ? (int) $row['batt'] : null,
+                'bs'          => $row['bs'],
+                'conn'        => $row['conn'],
+                't'           => $row['t'],
+                'vac'         => $row['vac'] !== null ? (float) $row['vac'] : null,
+                'tag'         => $row['tag'],
+            ];
+        }
+
+        header('Content-Type: application/json');
+        echo json_encode([
+            'ok'     => true,
+            'points' => $points,
+            'count'  => count($points),
+        ]);
         exit;
     }
 

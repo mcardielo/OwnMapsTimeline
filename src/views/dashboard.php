@@ -71,6 +71,10 @@
             🟢 Show Places
         </label>
         <label class="flex items-center gap-1 text-xs text-gray-500 mt-1 cursor-pointer">
+            <input type="checkbox" id="showShared" onchange="window._toggleShared()" class="w-3 h-3">
+            🔗 Show shared devices
+        </label>
+        <label class="flex items-center gap-1 text-xs text-gray-500 mt-1 cursor-pointer">
             <input type="checkbox" id="satelliteView" onchange="window._toggleSatellite()" class="w-3 h-3">
             🛰️ Satellite
         </label>

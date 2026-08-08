@@ -566,6 +566,66 @@ var map;
         }
     };
 
+    // ── Shared devices toggle ──────────────────────────────────────────────
+    var showShared = true; // default: show
+    var sharedMarkers = L.featureGroup();
+    window._toggleShared = function () {
+        showShared = document.getElementById('showShared').checked;
+        try { localStorage.setItem('ot_show_shared', showShared ? '1' : '0'); } catch (e) {}
+        if (showShared) {
+            map.addLayer(sharedMarkers);
+            loadSharedLocations();
+        } else {
+            map.removeLayer(sharedMarkers);
+            sharedMarkers.clearLayers();
+        }
+    };
+
+    /** Fetch and render shared device markers (latest location only) */
+    async function loadSharedLocations() {
+        try {
+            var resp = await fetch('/api/shared-locations');
+            if (!resp.ok) return;
+            var data = await resp.json();
+            if (!data.ok || !data.points) return;
+
+            sharedMarkers.clearLayers();
+
+            data.points.forEach(function (p) {
+                var lat = Number(p.lat);
+                var lon = Number(p.lon);
+                var color = p.color || '#3b82f6';
+                var ownerName = escapeHtml(p.owner_name || '');
+                var deviceName = escapeHtml(p.device_name || p.tid || '');
+                var ts = p.tst ? fmtTzDisplay(p.tst, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+                var acc = p.acc != null ? Math.round(p.acc) + 'm' : '—';
+                var batt = p.batt != null ? ' 🔋' + p.batt + '%' : '';
+
+                var marker = L.circleMarker([lat, lon], {
+                    radius: 9,
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.6,
+                    weight: 2,
+                    dashArray: '4,4',
+                    className: 'shared-device-marker'
+                });
+
+                var popupHtml = '<div style="font-size:12px">' +
+                    '<strong>🔗 ' + deviceName + '</strong><br>' +
+                    '<span style="color:#6b7280">Shared by ' + ownerName + '</span><br>' +
+                    '<span style="color:#6b7280">' + ts + '</span>' + batt + '<br>' +
+                    '<span style="color:#6b7280">ACC: ' + acc + '</span><br>' +
+                    '<span style="color:#6b7280;font-size:11px">' + lat.toFixed(5) + ', ' + lon.toFixed(5) + '</span>' +
+                    '</div>';
+                marker.bindPopup(popupHtml);
+                sharedMarkers.addLayer(marker);
+            });
+        } catch (err) {
+            console.error('Shared locations error:', err);
+        }
+    }
+
     /** Fetch and render place markers on the map */
     async function loadPlaces() {
         try {
@@ -868,6 +928,20 @@ var map;
             loadPlaces();
         } else {
             map.removeLayer(placeMarkers);
+        }
+    } catch (e) {}
+
+    // Restore Shared toggle (default: on)
+    try {
+        var showShr = localStorage.getItem('ot_show_shared');
+        if (showShr === '0') {
+            showShared = false;
+            document.getElementById('showShared').checked = false;
+        } else {
+            showShared = true;
+            document.getElementById('showShared').checked = true;
+            map.addLayer(sharedMarkers);
+            loadSharedLocations();
         }
     } catch (e) {}
 

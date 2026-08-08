@@ -247,8 +247,75 @@
                         </form>
                     </div>
                 </div>
+
+                <!-- Share section -->
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-xs font-medium text-gray-500 uppercase">🔗 Share with</span>
+                        <form method="POST" action="/devices/share" class="flex items-center gap-1" onsubmit="return confirmShare(<?= $device['id'] ?>)">
+                            <input type="hidden" name="device_id" value="<?= $device['id'] ?>">
+                            <input type="text" name="username" placeholder="username..."
+                                class="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 w-40"
+                                id="share-input-<?= $device['id'] ?>">
+                            <button type="submit" class="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">Share</button>
+                        </form>
+                    </div>
+                    <?php $deviceShares = $sharesByDevice[$device['id']] ?? []; ?>
+                    <?php if (!empty($deviceShares)): ?>
+                        <div class="flex flex-wrap gap-1.5" id="share-list-<?= $device['id'] ?>">
+                            <?php foreach ($deviceShares as $share): ?>
+                                <span class="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded-full">
+                                    <?= View::esc($share['username']) ?>
+                                    <form method="POST" action="/devices/unshare" class="inline" onsubmit="return confirm('Stop sharing with <?= View::esc($share['username']) ?>?')">
+                                        <input type="hidden" name="device_id" value="<?= $device['id'] ?>">
+                                        <input type="hidden" name="share_user_id" value="<?= $share['shared_with_user_id'] ?>">
+                                        <button type="submit" class="text-blue-400 hover:text-red-500 font-bold" title="Stop sharing">×</button>
+                                    </form>
+                                </span>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
             </div>
         <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <!-- Shared with you -->
+    <?php if (!empty($sharedWithMe)): ?>
+        <div class="mt-8">
+            <h3 class="text-lg font-semibold mb-4">📥 Shared with you</h3>
+            <div class="space-y-3">
+            <?php foreach ($sharedWithMe as $shared): ?>
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <input type="color" value="<?= View::esc($shared['custom_color'] ?: $shared['color']) ?>"
+                                class="w-6 h-6 rounded-full border-0 cursor-pointer p-0"
+                                data-share-device="<?= $shared['id'] ?>"
+                                onchange="onShareColorChange(this)"
+                                title="Custom color for this shared device">
+                            <div>
+                                <p class="font-medium text-sm"><?= View::esc($shared['custom_name'] ?: $shared['name']) ?></p>
+                                <p class="text-xs text-gray-400">Shared by <?= View::esc($shared['owner_name']) ?></p>
+                            </div>
+                        </div>
+                        <form method="POST" action="/devices/unshare-self" onsubmit="return confirm('Stop viewing <?= View::esc($shared['name']) ?>?')">
+                            <input type="hidden" name="device_id" value="<?= $shared['id'] ?>">
+                            <button type="submit" class="text-xs text-red-600 border border-red-200 rounded px-3 py-1 hover:bg-red-50 transition">Stop viewing</button>
+                        </form>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="text" value="<?= View::esc($shared['custom_name'] ?? '') ?>"
+                            placeholder="Custom name (optional)..."
+                            data-share-device="<?= $shared['id'] ?>"
+                            oninput="onShareNameChange(this)"
+                            class="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <span class="text-xs text-gray-400">Original: <?= View::esc($shared['name']) ?></span>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+            </div>
         </div>
     <?php endif; ?>
 

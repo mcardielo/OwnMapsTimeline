@@ -13,7 +13,7 @@ class MapController
         $authMode = getenv('AUTH_MODE') ?: 'local';
         $isAdmin  = ($_SESSION['role'] ?? 'user') === 'admin';
 
-        // Fetch user's devices for the filter dropdown
+        // Fetch user's devices for the filter dropdown (own devices only)
         if ($authMode === 'authelia') {
             $dbUser = Database::queryOne('SELECT id FROM users WHERE username = ?', [$username]);
             $devices = $dbUser ? Database::query('SELECT * FROM devices WHERE user_id = ? ORDER BY name', [$dbUser['id']]) : [];

@@ -188,6 +188,21 @@ class Database
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ");
+
+        // ── device_shares (device sharing between users) ───────────────────
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS device_shares (
+                id INTEGER PRIMARY KEY {$autoIncrement},
+                device_id INTEGER NOT NULL,
+                shared_with_user_id INTEGER NOT NULL,
+                custom_color TEXT DEFAULT NULL,
+                custom_name TEXT DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (device_id, shared_with_user_id),
+                FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
+                FOREIGN KEY (shared_with_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ");
     }
 
     /** Add a column to a table if it doesn't already exist */

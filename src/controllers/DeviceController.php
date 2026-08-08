@@ -41,15 +41,37 @@ class DeviceController
         $host   = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost';
         $webhookBase = "{$scheme}://{$host}/webhook";
 
+        // Load shares for each device (who this device is shared with)
+        $sharesByDevice = [];
+        foreach ($devices as $d) {
+            $sharesByDevice[$d['id']] = Database::query(
+                'SELECT ds.shared_with_user_id, u.username FROM device_shares ds JOIN users u ON ds.shared_with_user_id = u.id WHERE ds.device_id = ?',
+                [$d['id']]
+            );
+        }
+
+        // Load devices shared WITH the current user
+        $sharedWithMe = Database::query(
+            'SELECT d.id, d.name, d.tid, d.color, u.username AS owner_name, ds.custom_color, ds.custom_name, ds.shared_with_user_id
+             FROM device_shares ds
+             JOIN devices d ON ds.device_id = d.id
+             JOIN users u ON d.user_id = u.id
+             WHERE ds.shared_with_user_id = ?
+             ORDER BY d.name ASC',
+            [self::resolveUserId()]
+        );
+
         View::render('devices', [
-            'username'    => $username,
-            'devices'     => $devices,
-            'error'       => $error,
-            'success'     => $success,
-            'webhookBase' => $webhookBase,
-            'isAdmin'     => $isAdmin,
-            'pageTitle'   => 'Devices',
-            'navLinks'    => [
+            'username'      => $username,
+            'devices'       => $devices,
+            'sharesByDevice' => $sharesByDevice,
+            'sharedWithMe'  => $sharedWithMe,
+            'error'         => $error,
+            'success'       => $success,
+            'webhookBase'   => $webhookBase,
+            'isAdmin'       => $isAdmin,
+            'pageTitle'     => 'Devices',
+            'navLinks'      => [
                 ['url' => '/dashboard', 'label' => 'Dashboard'],
                 ['url' => '/places', 'label' => 'Places'],
                 ['url' => '/import', 'label' => 'Import'],
@@ -236,6 +258,185 @@ class DeviceController
 
         header('Content-Type: application/json');
         echo json_encode(['status' => 'ok', 'color' => $color]);
+        exit;
+    }
+
+    // ── Share device (POST /devices/share) ──────────────────────────────────
+    public static function shareDevice(array $query = [], array $body = []): void
+    {
+        $deviceId = $_POST['device_id'] ?? '';
+        $username = trim($_POST['username'] ?? '');
+
+        if (strlen($deviceId) < 1 || strlen($username) < 1) {
+            $_SESSION['device_error'] = 'Device ID and username are required';
+            header('Location: /devices', true, 302);
+            exit;
+        }
+
+        $device = self::getUserDevice((int) $deviceId);
+        if (!$device) {
+            $_SESSION['device_error'] = 'Device not found';
+            header('Location: /devices', true, 302);
+            exit;
+        }
+
+        // Find target user
+        $targetUser = Database::queryOne(
+            'SELECT id, username FROM users WHERE username = ?',
+            [$username]
+        );
+        if (!$targetUser) {
+            $_SESSION['device_error'] = "User '{$username}' not found";
+            header('Location: /devices', true, 302);
+            exit;
+        }
+
+        // Can't share with yourself
+        if ((int) $targetUser['id'] === self::resolveUserId()) {
+            $_SESSION['device_error'] = 'You cannot share a device with yourself';
+            header('Location: /devices', true, 302);
+            exit;
+        }
+
+        // Check if already shared
+        $existing = Database::queryOne(
+            'SELECT id FROM device_shares WHERE device_id = ? AND shared_with_user_id = ?',
+            [(int) $deviceId, (int) $targetUser['id']]
+        );
+        if ($existing) {
+            $_SESSION['device_error'] = "Device already shared with '{$username}'";
+            header('Location: /devices', true, 302);
+            exit;
+        }
+
+        Database::insert(
+            'INSERT INTO device_shares (device_id, shared_with_user_id) VALUES (?, ?)',
+            [(int) $deviceId, (int) $targetUser['id']]
+        );
+
+        $_SESSION['device_success'] = "Device '{$device['name']}' shared with '{$username}'";
+        header('Location: /devices', true, 302);
+        exit;
+    }
+
+    // ── Unshare device (POST /devices/unshare) ──────────────────────────────
+    public static function unshareDevice(array $query = [], array $body = []): void
+    {
+        $deviceId   = $_POST['device_id'] ?? '';
+        $shareUserId = $_POST['share_user_id'] ?? '';
+
+        if (strlen($deviceId) < 1 || strlen($shareUserId) < 1) {
+            $_SESSION['device_error'] = 'Device ID and share user ID are required';
+            header('Location: /devices', true, 302);
+            exit;
+        }
+
+        $device = self::getUserDevice((int) $deviceId);
+        if (!$device) {
+            $_SESSION['device_error'] = 'Device not found';
+            header('Location: /devices', true, 302);
+            exit;
+        }
+
+        Database::execute(
+            'DELETE FROM device_shares WHERE device_id = ? AND shared_with_user_id = ?',
+            [(int) $deviceId, (int) $shareUserId]
+        );
+
+        $_SESSION['device_success'] = 'Share removed';
+        header('Location: /devices', true, 302);
+        exit;
+    }
+
+    // ── Unshare self (POST /devices/unshare-self) ───────────────────────────
+    public static function unshareSelf(array $query = [], array $body = []): void
+    {
+        $deviceId = $_POST['device_id'] ?? '';
+
+        if (strlen($deviceId) < 1) {
+            $_SESSION['device_error'] = 'Device ID is required';
+            header('Location: /devices', true, 302);
+            exit;
+        }
+
+        $userId = self::resolveUserId();
+
+        Database::execute(
+            'DELETE FROM device_shares WHERE device_id = ? AND shared_with_user_id = ?',
+            [(int) $deviceId, $userId]
+        );
+
+        $_SESSION['device_success'] = 'Stopped viewing shared device';
+        header('Location: /devices', true, 302);
+        exit;
+    }
+
+    // ── Update share color/name (POST /devices/share-color) ──────────────
+    public static function updateShareColor(array $query = [], array $body = []): void
+    {
+        $deviceId   = $body['device_id'] ?? $_POST['device_id'] ?? '';
+        $color      = $body['color'] ?? $_POST['color'] ?? '';
+        $customName = $body['custom_name'] ?? $_POST['custom_name'] ?? null;
+
+        if (strlen($deviceId) < 1) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'device_id is required']);
+            exit;
+        }
+
+        $userId = self::resolveUserId();
+
+        // Verify the share exists
+        $share = Database::queryOne(
+            'SELECT id FROM device_shares WHERE device_id = ? AND shared_with_user_id = ?',
+            [(int) $deviceId, $userId]
+        );
+        if (!$share) {
+            http_response_code(404);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Share not found']);
+            exit;
+        }
+
+        // Build UPDATE dynamically based on what was provided
+        $fields = [];
+        $params = [];
+        if (strlen($color) > 0) {
+            if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
+                http_response_code(400);
+                header('Content-Type: application/json');
+                echo json_encode(['error' => 'Invalid hex color']);
+                exit;
+            }
+            $fields[] = 'custom_color = ?';
+            $params[] = $color;
+        }
+        if ($customName !== null) {
+            $trimmedName = trim($customName);
+            if (strlen($trimmedName) > 0) {
+                $fields[] = 'custom_name = ?';
+                $params[] = $trimmedName;
+            } else {
+                $fields[] = 'custom_name = NULL';
+            }
+        }
+        if (empty($fields)) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Nothing to update']);
+            exit;
+        }
+        $params[] = (int) $deviceId;
+        $params[] = $userId;
+
+        Database::execute(
+            'UPDATE device_shares SET ' . implode(', ', $fields) . ' WHERE device_id = ? AND shared_with_user_id = ?',
+            $params
+        );
+
+        header('Content-Type: application/json');
+        echo json_encode(['status' => 'ok']);
         exit;
     }
 
