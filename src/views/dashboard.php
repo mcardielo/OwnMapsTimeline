@@ -121,6 +121,17 @@
     </select>
 </div>
 
+<div id="configDriftToast" class="hidden fixed bottom-4 right-4 z-[9999] w-[360px] max-w-[calc(100vw-2rem)] bg-red-50 border border-red-300 rounded-lg shadow-xl p-4">
+    <div class="flex items-start gap-3">
+        <div class="flex-1 text-red-800">
+            <p class="font-semibold text-sm mb-2">⚠️ Device configuration changed</p>
+            <div id="configDriftBody" class="text-xs leading-relaxed space-y-2"></div>
+            <p class="text-red-400 mt-2 text-[11px]">The OwnTracks app is reporting values that differ from the panel configuration.</p>
+        </div>
+        <button onclick="dismissConfigDrift()" class="text-red-400 hover:text-red-700 text-xl leading-none font-bold shrink-0" title="Descartar" aria-label="Descartar">×</button>
+    </div>
+</div>
+
 <script src="/js/tz-lookup.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/dashboard.js"></script>

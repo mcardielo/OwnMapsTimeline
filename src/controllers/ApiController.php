@@ -151,6 +151,67 @@ class ApiController
         exit;
     }
 
+    // ── GET /api/config-drift ─────────────────────────────────────────────
+    /**
+     * Returns config drift + silence status for the current user's devices.
+     * Used by the dashboard to show alerts.
+     */
+    public static function configDrift(array $query = [], array $body = []): void
+    {
+        $authMode = getenv('AUTH_MODE') ?: 'local';
+        $username = $_SESSION['username'];
+
+        if ($authMode === 'authelia') {
+            $dbUser = Database::queryOne('SELECT id FROM users WHERE username = ?', [$username]);
+            $userId = $dbUser['id'] ?? null;
+        } else {
+            $userId = $_SESSION['user_id'];
+        }
+
+        if (!$userId) {
+            http_response_code(403);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'User not found']);
+            exit;
+        }
+
+        $devices = Database::query(
+            'SELECT id, name, tid, color, config_json FROM devices WHERE user_id = ? ORDER BY name ASC',
+            [$userId]
+        );
+
+        $result = [];
+        foreach ($devices as $d) {
+            $check = Database::queryOne(
+                'SELECT checked_at, has_drift, drift_fields
+                 FROM config_checks
+                 WHERE device_id = ?
+                 ORDER BY checked_at DESC, id DESC LIMIT 1',
+                [$d['id']]
+            );
+            $lastLoc = Database::queryOne(
+                'SELECT tst FROM locations WHERE device_id = ? ORDER BY tst DESC LIMIT 1',
+                [$d['id']]
+            );
+
+            $result[] = [
+                'device_id'     => (int)$d['id'],
+                'name'          => $d['name'],
+                'tid'           => $d['tid'],
+                'color'         => $d['color'],
+                'has_config'    => !empty($d['config_json']),
+                'last_seen'     => $lastLoc ? (int)$lastLoc['tst'] : null,
+                'last_check_at' => $check ? (int)$check['checked_at'] : null,
+                'has_drift'     => $check ? ((int)$check['has_drift'] === 1) : false,
+                'drift_fields'  => ($check && $check['drift_fields']) ? json_decode($check['drift_fields'], true) : [],
+            ];
+        }
+
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => true, 'devices' => $result]);
+        exit;
+    }
+
     // ── GET /api/device-config ─────────────────────────────────────────────
     // Returns Owntracks .otrc JSON for remote config via owntracks:///config?url=...
     // No auth required — validated by tid + token in query

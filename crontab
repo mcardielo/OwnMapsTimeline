@@ -1,2 +1,5 @@
 # Places detection — daily at midnight (container timezone)
 0 0 * * * php /app/scripts/cron_detect_places.php >> /tmp/places_cron_stdout.log 2>&1
+
+# Config drift — request config dump daily at 1:00 AM
+0 1 * * * php /app/scripts/cron_request_config.php >> /tmp/config_request_cron_stdout.log 2>&1

@@ -44,6 +44,7 @@ $routes = [
         '/api/places/cron-log' => 'protected:PlaceController::cronLog',
         '/api/poi-image' => 'protected:ApiController::poiImage',
         '/api/shared-locations' => 'protected:ApiController::sharedLocations',
+        '/api/config-drift' => 'protected:ApiController::configDrift',
         '/api/device-config' => 'ApiController::deviceConfig', // public: validated by tid+token
     ],
     'POST' => [

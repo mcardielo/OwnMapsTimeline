@@ -114,6 +114,7 @@ class Database
         ");
 
         self::addColumnIfMissing('devices', 'color', "TEXT NOT NULL DEFAULT ''");
+        self::addColumnIfMissing('devices', 'dump_pending', "INTEGER NOT NULL DEFAULT 0");
         self::addColumnIfMissing('locations', 'poi', "TEXT DEFAULT NULL");
         self::addColumnIfMissing('locations', 'poi_imagename', "TEXT DEFAULT NULL");
 
@@ -202,6 +203,24 @@ class Database
                 FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
                 FOREIGN KEY (shared_with_user_id) REFERENCES users(id) ON DELETE CASCADE
             )
+        ");
+
+        // ── config_checks (result of validating device config against reference) ──
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS config_checks (
+                id INTEGER PRIMARY KEY {$autoIncrement},
+                device_id INTEGER NOT NULL,
+                checked_at INTEGER NOT NULL,
+                has_drift INTEGER NOT NULL DEFAULT 0,
+                drift_fields TEXT DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+            )
+        ");
+
+        $pdo->exec("
+            CREATE INDEX IF NOT EXISTS idx_config_checks_device_checked
+            ON config_checks (device_id, checked_at)
         ");
     }
 

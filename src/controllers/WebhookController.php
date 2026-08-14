@@ -33,7 +33,7 @@ class WebhookController
 
         // 2. Look up device by TID + token
         $device = Database::queryOne(
-            'SELECT id, user_id, tid, name, webhook_token FROM devices WHERE tid = ? AND webhook_token = ?',
+            'SELECT id, user_id, tid, name, webhook_token, config_json, dump_pending FROM devices WHERE tid = ? AND webhook_token = ?',
             [$tid, $token]
         );
 
@@ -68,6 +68,20 @@ class WebhookController
             case 'location':
                 self::storeLocation($device['id'], $data);
                 break;
+            case 'dump':
+                // Device responded to a dump command — config arrives nested under "configuration"
+                self::storeConfiguration($device, $data['configuration'] ?? []);
+                http_response_code(200);
+                header('Content-Type: application/json');
+                echo json_encode([]);
+                exit;
+            case 'configuration':
+                // Config sent directly (import/export path)
+                self::storeConfiguration($device, $data);
+                http_response_code(200);
+                header('Content-Type: application/json');
+                echo json_encode([]);
+                exit;
             default:
                 // transition, waypoint, lwt, cmd, etc.
                 self::storeEvent($device['id'], $type, $data);
@@ -76,6 +90,12 @@ class WebhookController
 
         // 6. Fetch friend locations (other devices owned by same user)
         $friends = self::getFriendLocations($device['user_id'], $device['id']);
+
+        // 6b. If a config dump was requested, ask the device for its configuration
+        if ((int)($device['dump_pending'] ?? 0) === 1) {
+            $friends[] = ['_type' => 'cmd', 'action' => 'dump'];
+            Database::execute('UPDATE devices SET dump_pending = 0 WHERE id = ?', [$device['id']]);
+        }
 
         // 7. Respond — OwnTracks HTTP mode expects a JSON array of _type objects
         http_response_code(200);
@@ -128,6 +148,129 @@ class WebhookController
                 json_encode($data),
             ]
         );
+    }
+
+    // ── Store configuration dump + validate against reference ─────────────
+    private static function storeConfiguration(array $device, array $data): void
+    {
+        // Redact sensitive fields before persisting
+        $sanitized = $data;
+        foreach (['password', 'encryptionKey', 'username'] as $k) {
+            if (isset($sanitized[$k]) && $sanitized[$k] !== '') {
+                $sanitized[$k] = '[REDACTED]';
+            }
+        }
+
+        // Redact the webhook token embedded in the url field (device auth secret)
+        if (isset($sanitized['url']) && is_string($sanitized['url'])) {
+            $sanitized['url'] = preg_replace('/([?&]token=)[^&]*/i', '$1[REDACTED]', $sanitized['url']);
+        }
+
+        $tst = (int)($data['tst'] ?? time());
+
+        // Persist the (sanitized) dump in events_log for audit
+        Database::insert(
+            'INSERT INTO events_log (device_id, event_type, tst, raw_data) VALUES (?, ?, ?, ?)',
+            [$device['id'], 'configuration', $tst, json_encode($sanitized)]
+        );
+
+        // Validate against reference config (skip if none)
+        $drift = [];
+        $referenceJson = $device['config_json'] ?? null;
+        if ($referenceJson && trim((string)$referenceJson) !== '') {
+            $reference = json_decode($referenceJson, true);
+            if (is_array($reference)) {
+                $drift = self::compareConfig($reference, $data);
+            }
+        }
+
+        self::recordCheck($device['id'], $tst, empty($drift) ? 0 : 1, empty($drift) ? null : json_encode($drift));
+    }
+
+    /** Compare reported config against reference; return list of drifted fields. */
+    private static function compareConfig(array $reference, array $reported): array
+    {
+        $drift = [];
+
+        // System-fixed expectations (HTTP mode frontend)
+        $reference['mode'] = 3;          // HTTP
+        $reference['cmd'] = true;        // required for remote commands / dump
+        $reference['extendedData'] = true;
+
+        $intFields = [
+            'monitoring', 'positions', 'adapt', 'locatorInterval',
+            'locatorDisplacement', 'downgrade', 'ignoreInaccurateLocations',
+            'days', 'maxHistory', 'mode',
+        ];
+        $boolFields = ['ranging', 'locked', 'allowRemoteLocation', 'cmd', 'extendedData'];
+
+        // Fields whose absence in the reported config is itself a drift
+        $critical = ['monitoring', 'mode', 'cmd', 'extendedData'];
+
+        foreach ($intFields as $f) {
+            if (!array_key_exists($f, $reference)) continue;
+            if (!array_key_exists($f, $reported)) {
+                if (in_array($f, $critical, true)) {
+                    $drift[] = ['field' => $f, 'expected' => (int)$reference[$f], 'actual' => null];
+                }
+                continue;
+            }
+            $expected = (int)$reference[$f];
+            $actual = (int)$reported[$f];
+            if ($actual !== $expected) {
+                $drift[] = ['field' => $f, 'expected' => $expected, 'actual' => $actual];
+            }
+        }
+
+        foreach ($boolFields as $f) {
+            if (!array_key_exists($f, $reference)) continue;
+            if (!array_key_exists($f, $reported)) {
+                if (in_array($f, $critical, true)) {
+                    $drift[] = ['field' => $f, 'expected' => self::toBool($reference[$f]), 'actual' => null];
+                }
+                continue;
+            }
+            $expected = self::toBool($reference[$f]);
+            $actual = self::toBool($reported[$f]);
+            if ($actual !== $expected) {
+                $drift[] = ['field' => $f, 'expected' => $expected, 'actual' => $actual];
+            }
+        }
+
+        // +follow region: only validated when the reference explicitly enables it
+        if (array_key_exists('follow', $reference) && self::toBool($reference['follow'])) {
+            $hasFollow = false;
+            $wps = $reported['waypoints'] ?? null;
+            if (is_array($wps)) {
+                foreach ($wps as $wp) {
+                    if (is_array($wp) && (($wp['desc'] ?? null) === '+follow')) {
+                        $hasFollow = true;
+                        break;
+                    }
+                }
+            }
+            if (!$hasFollow) {
+                $drift[] = ['field' => '+follow', 'expected' => 'present', 'actual' => 'missing'];
+            }
+        }
+
+        return $drift;
+    }
+
+    private static function recordCheck(int $deviceId, int $tst, int $hasDrift, ?string $driftFields): void
+    {
+        Database::insert(
+            'INSERT INTO config_checks (device_id, checked_at, has_drift, drift_fields) VALUES (?, ?, ?, ?)',
+            [$deviceId, $tst, $hasDrift, $driftFields]
+        );
+    }
+
+    private static function toBool($value): bool
+    {
+        if (is_bool($value)) return $value;
+        if (is_int($value) || is_float($value)) return $value != 0;
+        if (is_string($value)) return in_array(strtolower($value), ['1', 'true', 'on', 'yes'], true);
+        return (bool)$value;
     }
 
     // ── Friend locations (other devices of same user + shared devices) ───

@@ -848,6 +848,99 @@ var map;
         }, 30000);
     }
 
+    // ── Config drift alerts (floating toast, persistent until dismissed) ──
+    var CONFIG_FIELD_LABELS = {
+        'monitoring': 'Monitoring mode',
+        'mode': 'Protocol',
+        'positions': 'Positions',
+        'adapt': 'Adapt (min)',
+        'locatorInterval': 'Location interval (s)',
+        'locatorDisplacement': 'Location displacement (m)',
+        'downgrade': 'Battery downgrade (%)',
+        'ignoreInaccurateLocations': 'Min accuracy (m)',
+        'days': 'History days',
+        'maxHistory': 'Stored notifications',
+        'ranging': 'Ranging (beacons)',
+        'locked': 'Locked screen',
+        'allowRemoteLocation': 'Remote location',
+        'cmd': 'Remote commands',
+        'extendedData': 'Extended data',
+        '+follow': '+follow region'
+    };
+    var MONITORING_NAMES = { '-1': 'Quiet', '0': 'Manual', '1': 'Significant', '2': 'Move' };
+    var MODE_NAMES = { '0': 'MQTT', '3': 'HTTP' };
+    var DRIFT_DISMISS_KEY = 'ot_config_drift_dismissed';
+    var _lastDriftCheck = 0;
+
+    function describeDriftValue(field, value) {
+        if (value === null || value === undefined) return 'missing';
+        if (field === 'monitoring') return MONITORING_NAMES[String(value)] || String(value);
+        if (field === 'mode') return MODE_NAMES[String(value)] || String(value);
+        if (field === '+follow') return (value === 'missing') ? 'missing' : 'present';
+        if (typeof value === 'boolean') return value ? 'enabled' : 'disabled';
+        return String(value);
+    }
+
+    function driftFieldText(f) {
+        var label = CONFIG_FIELD_LABELS[f.field] || f.field;
+        var exp = describeDriftValue(f.field, f.expected);
+        var act = describeDriftValue(f.field, f.actual);
+        return '<div>' + escapeHtml(label) + ': expected <strong>' + escapeHtml(exp) +
+            '</strong>, actual <strong>' + escapeHtml(act) + '</strong></div>';
+    }
+
+    async function loadConfigDrift() {
+        try {
+            var resp = await fetch('/api/config-drift');
+            if (!resp.ok) return;
+            var data = await resp.json();
+            if (!data.ok || !data.devices) return;
+
+            var drifted = data.devices.filter(function (d) {
+                return d.has_drift && d.drift_fields && d.drift_fields.length;
+            });
+
+            renderConfigDriftToast(drifted);
+        } catch (e) {
+            console.error('config drift error:', e);
+        }
+    }
+
+    function renderConfigDriftToast(drifted) {
+        var toast = document.getElementById('configDriftToast');
+        var body = document.getElementById('configDriftBody');
+        if (!toast || !body) return;
+
+        if (!drifted.length) {
+            toast.classList.add('hidden');
+            return;
+        }
+
+        _lastDriftCheck = 0;
+        var html = '';
+        drifted.forEach(function (d) {
+            _lastDriftCheck = Math.max(_lastDriftCheck, d.last_check_at || 0);
+            var items = d.drift_fields.map(driftFieldText).join('');
+            html += '<div class="mb-2"><div class="font-medium">📱 ' + escapeHtml(d.name) + '</div>' + items + '</div>';
+        });
+        body.innerHTML = html;
+
+        // Only show if the current drift is newer than what the user dismissed
+        var dismissed = 0;
+        try { dismissed = parseInt(localStorage.getItem(DRIFT_DISMISS_KEY) || '0', 10); } catch (e) {}
+        if (dismissed >= _lastDriftCheck) return;
+        toast.classList.remove('hidden');
+    }
+
+    function dismissConfigDrift() {
+        var toast = document.getElementById('configDriftToast');
+        try { localStorage.setItem(DRIFT_DISMISS_KEY, String(_lastDriftCheck)); } catch (e) {}
+        if (toast) toast.classList.add('hidden');
+    }
+
+    window._loadConfigDrift = loadConfigDrift;
+    window.dismissConfigDrift = dismissConfigDrift;
+
     // ── Init ───────────────────────────────────────────────────────────────
     // Always start with browser timezone for the initial date range
     // (saved timezone is applied later when points are loaded)
@@ -876,6 +969,7 @@ var map;
 
     loadData(true, true);
     scheduleRefresh();
+    loadConfigDrift();
 
     var savedCollapsed = localStorage.getItem('ot_sidebar_collapsed');
     if ((savedCollapsed === null && window.innerWidth < 500) || savedCollapsed === '1') {

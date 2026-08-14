@@ -26,6 +26,12 @@ function saveConfig(deviceId) {
 
     var config = buildConfigFromPanel(panel);
 
+    // Persist +follow state so the reference config includes it for drift validation
+    var followEl = panel.querySelector('[data-param="follow"]');
+    if (followEl) {
+        config['follow'] = followEl.checked;
+    }
+
     var statusEl = document.getElementById('save-status-' + deviceId);
     if (statusEl) { statusEl.textContent = 'Saving…'; statusEl.classList.remove('opacity-0'); }
 
