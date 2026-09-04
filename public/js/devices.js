@@ -11,6 +11,11 @@ function toggleConfig(deviceId) {
     panel.classList.toggle('hidden');
 }
 
+function toggleHelpTip(btn) {
+    var desc = btn.parentElement.querySelector('.help-tip-desc');
+    if (desc) desc.classList.toggle('hidden');
+}
+
 function onConfigChange(deviceId, webhookUrl, deviceName) {
     updateConfigLink(deviceId, webhookUrl, deviceName);
 
@@ -144,6 +149,7 @@ function buildConfigFromPanel(panel) {
         'monitoring': 2,
         'days': -1,
         'allowRemoteLocation': true,
+        'remoteConfiguration': true,
         'adapt': 10,
         'locatorInterval': 60,
         'locatorDisplacement': 100,

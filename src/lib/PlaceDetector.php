@@ -226,6 +226,25 @@ class PlaceDetector
                 }
             }
 
+            // Refresh visit stats for ALL places (existing + newly created)
+            // from the complete point history. The merge loop above only
+            // updates a place when a new candidate cluster (>= min_visits
+            // visits within the recent window) merges into it — so a single
+            // new visit to an existing place would leave its visit_count,
+            // total_time, first_seen and last_seen stale forever. This pass
+            // guarantees those fields always reflect the full history.
+            foreach ($existingPlaces as &$p) {
+                $realVisits = self::getVisits((int) $p['id'], $userId);
+                $p['visit_count'] = count($realVisits);
+                $p['total_time']  = array_sum(array_column($realVisits, 'duration'));
+                if (count($realVisits) > 0) {
+                    $p['first_seen'] = min(array_column($realVisits, 'start_tst'));
+                    $p['last_seen']  = max(array_column($realVisits, 'end_tst'));
+                }
+                self::savePlace($p);
+            }
+            unset($p);
+
             self::updateMeta($userId, $deviceId, time());
 
             // Collect places from this device

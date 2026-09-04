@@ -33,7 +33,7 @@ class WebhookController
 
         // 2. Look up device by TID + token
         $device = Database::queryOne(
-            'SELECT id, user_id, tid, name, webhook_token, config_json, dump_pending FROM devices WHERE tid = ? AND webhook_token = ?',
+            'SELECT id, user_id, tid, name, webhook_token, config_json, last_config_check_day, config_fix_pending FROM devices WHERE tid = ? AND webhook_token = ?',
             [$tid, $token]
         );
 
@@ -91,10 +91,13 @@ class WebhookController
         // 6. Fetch friend locations (other devices owned by same user)
         $friends = self::getFriendLocations($device['user_id'], $device['id']);
 
-        // 6b. If a config dump was requested, ask the device for its configuration
-        if ((int)($device['dump_pending'] ?? 0) === 1) {
-            $friends[] = ['_type' => 'cmd', 'action' => 'dump'];
-            Database::execute('UPDATE devices SET dump_pending = 0 WHERE id = ?', [$device['id']]);
+        // 6b. Daily config check + auto-heal:
+        //     first location POST of the day requests a config dump to verify;
+        //     if drift was detected (from that dump), the next POST pushes the
+        //     stored config back via setConfiguration.
+        $configCmd = self::maybeConfigCommand($device);
+        if ($configCmd !== null) {
+            $friends[] = $configCmd;
         }
 
         // 7. Respond — OwnTracks HTTP mode expects a JSON array of _type objects
@@ -176,6 +179,7 @@ class WebhookController
 
         // Validate against reference config (skip if none)
         $drift = [];
+        $reference = null;
         $referenceJson = $device['config_json'] ?? null;
         if ($referenceJson && trim((string)$referenceJson) !== '') {
             $reference = json_decode($referenceJson, true);
@@ -185,6 +189,77 @@ class WebhookController
         }
 
         self::recordCheck($device['id'], $tst, empty($drift) ? 0 : 1, empty($drift) ? null : json_encode($drift));
+
+        // If remote config is enabled, flag the device for an auto-heal
+        // setConfiguration on its next location POST (or clear the flag when
+        // the config is back in sync).
+        if (is_array($reference) && !empty($reference['remoteConfiguration'])) {
+            Database::execute(
+                'UPDATE devices SET config_fix_pending = ? WHERE id = ?',
+                [empty($drift) ? 0 : 1, $device['id']]
+            );
+        }
+    }
+
+    /**
+     * Daily config check + auto-heal state machine.
+     *
+     * On the first location POST of the day: request a config dump to verify
+     * the device's configuration. If a previous dump detected drift, push the
+     * stored reference config back via setConfiguration on the next POST.
+     *
+     * Only runs when the device has a saved reference config AND
+     * remoteConfiguration is enabled (otherwise the app won't accept the
+     * setConfiguration command).
+     *
+     * @return array|null a cmd object to include in the response, or null
+     */
+    private static function maybeConfigCommand(array $device): ?array
+    {
+        $configJson = $device['config_json'] ?? null;
+        if (!$configJson || trim((string)$configJson) === '') {
+            return null;
+        }
+        $config = json_decode($configJson, true);
+        if (!is_array($config) || empty($config['remoteConfiguration'])) {
+            return null;
+        }
+
+        $today = date('Y-m-d');
+        $lastCheckDay = $device['last_config_check_day'] ?? null;
+
+        // First webhook of the day — verify the device configuration
+        if ($lastCheckDay !== $today) {
+            Database::execute(
+                'UPDATE devices SET last_config_check_day = ?, config_fix_pending = 0 WHERE id = ?',
+                [$today, $device['id']]
+            );
+            return ['_type' => 'cmd', 'action' => 'dump'];
+        }
+
+        // Drift was detected earlier today — push the stored config to fix it
+        if ((int)($device['config_fix_pending'] ?? 0) === 1) {
+            Database::execute(
+                'UPDATE devices SET config_fix_pending = 0 WHERE id = ?',
+                [$device['id']]
+            );
+
+            // Build a valid _type: configuration object to send back
+            $fix = $config;
+            $fix['_type'] = 'configuration';
+            $fix['mode'] = 3;
+            $fix['cmd'] = true;
+            $fix['extendedData'] = true;
+            unset($fix['follow']); // custom UI flag, not a real OwnTracks field
+
+            return [
+                '_type'        => 'cmd',
+                'action'       => 'setConfiguration',
+                'configuration' => $fix,
+            ];
+        }
+
+        return null;
     }
 
     /** Compare reported config against reference; return list of drifted fields. */

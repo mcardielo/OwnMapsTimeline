@@ -154,6 +154,9 @@ The TID and token are displayed on the device card in the web UI.
 - **POI markers** — display Points of Interest with images from OwnTracks
 - **Tag filtering** — filter locations by device tags with auto date range
 - **HTTP Friends** — share device locations between OwnTracks apps via webhook response
+- **Device sharing** — share a device's location with another user, each with their own name/color
+- **Config drift detection & auto-heal** — daily check that the app config still matches your settings, with automatic fix + alerts
+- **Manual place creation** — add places manually and find their visits instantly
 - **Single container** — one `docker compose up`, no external dependencies
 
 ### Places Detection
@@ -169,6 +172,33 @@ using a modified DBSCAN algorithm with geofence crossing for visit detection.
 - **Incremental detection** — only processes new points since last analysis
 - **Configurable** — per-user settings for epsilon, min visits, min duration, merge gap, etc.
 - **Map integration** — places shown as green circles on the map, filterable by device
+- **Manual creation** — add a place by clicking the map or entering coordinates to find its visits instantly
+
+### Device Sharing
+
+Share a device's live location with another user on the same instance (e.g. share a family
+car or tracker).
+
+- Share/unshare from the **Devices** page — the recipient immediately sees the device on their dashboard
+- Each recipient can set their own display name and color for the shared device
+- Shared locations are served via `/api/shared-locations` and rendered on the map alongside your own devices
+
+### Config Drift Detection & Auto-Heal
+
+OwnTracks apps sometimes silently reset their own settings (e.g. switching from "Move" to
+"Significant changes" monitoring), which stops reliable reporting. OwnMapsTimeline checks
+for this daily and can fix it automatically:
+
+- On the first location report of the day, the webhook replies with a `dump` command
+- The app returns its live config, which is compared field-by-field against your stored settings
+  (monitoring, mode, positions, adapt, intervals, downgrade, ignore-inaccurate, ranging, etc.)
+- If drift is detected, the next location report receives a `setConfiguration` command that
+  restores the saved settings automatically
+- Results are stored and surfaced as alerts in the dashboard sidebar
+
+> Auto-heal requires the device to have **Remote Configuration** enabled (a device setting,
+> enabled by default when you scan the QR / open the config link). If it's disabled on the
+> device, drift is still detected and alerted, but the app won't accept the automatic fix.
 
 ## Development
 

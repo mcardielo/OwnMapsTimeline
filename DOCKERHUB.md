@@ -51,6 +51,18 @@ Then open `http://localhost:8090/setup` and create your admin account.
 - **Database:** SQLite (default) or MySQL
 - **Frontend:** Leaflet.js + TailwindCSS
 
+## Features
+
+- Interactive map (Leaflet + OpenStreetMap) with color-coded routes per device
+- Route playback with adjustable speed, accuracy and speed overlays
+- Places detection — automatic stay-point detection (DBSCAN) with visit history
+- Manual place creation, per-device places, configurable detection settings
+- Device sharing between users, each with custom name/color
+- Config drift detection & auto-heal — daily check that the app still matches your settings, with automatic fix + ⚠️ alerts
+- Multi-user and multi-device, GPX import, POI markers, tag filtering, timezone support
+- HTTP Friends — share locations between OwnTracks apps via webhook response
+- Local (PHP sessions) or Authelia authentication
+
 ## Remote Configuration Note
 
 Recent versions of the OwnTracks app have disabled remote configuration via deep links

@@ -68,6 +68,7 @@
                     'monitoring'   => 2,
                     'days'         => -1,
                     'allowRemoteLocation' => true,
+                    'remoteConfiguration' => true,
                     'adapt'        => 10,
                     'locatorInterval'     => 60,
                     'locatorDisplacement' => 100,
@@ -208,6 +209,12 @@
                                 <label class="flex items-center gap-1 col-span-2">
                                     <input type="checkbox" <?= !empty($defaultConfig['allowRemoteLocation']) ? 'checked' : '' ?> data-param="allowRemoteLocation" data-device="<?= $device['id'] ?>" onchange="onConfigChange(<?= $device['id'] ?>, '<?= View::esc(addslashes($webhookUrl)) ?>', '<?= View::esc(addslashes($device['name'])) ?>')">
                                     <span class="text-gray-600">Allow Remote Location</span>
+                                </label>
+                                <label class="flex items-center gap-1 col-span-2 flex-wrap">
+                                    <input type="checkbox" <?= !empty($defaultConfig['remoteConfiguration']) ? 'checked' : '' ?> data-param="remoteConfiguration" data-device="<?= $device['id'] ?>" onchange="onConfigChange(<?= $device['id'] ?>, '<?= View::esc(addslashes($webhookUrl)) ?>', '<?= View::esc(addslashes($device['name'])) ?>')">
+                                    <span class="text-gray-600">Remote Configuration</span>
+                                    <button type="button" onclick="toggleHelpTip(this)" class="text-blue-500 hover:text-blue-700 font-bold text-[11px] leading-none px-1" title="What is this?">?</button>
+                                    <span class="help-tip-desc hidden w-full text-[11px] text-gray-500 bg-blue-50 border border-blue-100 rounded px-2 py-1 mt-1">Lets OwnMapsTimeline automatically push your saved settings back to this device (setConfiguration) when it detects the app drifted from them. The device only accepts this if remote configuration is enabled on it — which is included when you scan the QR / open the link.</span>
                                 </label>
                                 <label class="flex items-center gap-1 col-span-2">
                                     <input type="checkbox" <?= !empty($defaultConfig['waypoints']) ? 'checked' : '' ?> data-param="follow" data-device="<?= $device['id'] ?>" onchange="onConfigChange(<?= $device['id'] ?>, '<?= View::esc(addslashes($webhookUrl)) ?>', '<?= View::esc(addslashes($device['name'])) ?>')">

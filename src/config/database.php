@@ -115,6 +115,8 @@ class Database
 
         self::addColumnIfMissing('devices', 'color', "TEXT NOT NULL DEFAULT ''");
         self::addColumnIfMissing('devices', 'dump_pending', "INTEGER NOT NULL DEFAULT 0");
+        self::addColumnIfMissing('devices', 'last_config_check_day', "TEXT DEFAULT NULL");
+        self::addColumnIfMissing('devices', 'config_fix_pending', "INTEGER NOT NULL DEFAULT 0");
         self::addColumnIfMissing('locations', 'poi', "TEXT DEFAULT NULL");
         self::addColumnIfMissing('locations', 'poi_imagename', "TEXT DEFAULT NULL");
 
