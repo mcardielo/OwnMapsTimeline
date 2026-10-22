@@ -34,23 +34,23 @@ $scriptPath = __DIR__ . '/detect_places.php';
 
 foreach ($users as $user) {
     $userId = (int) $user['user_id'];
-    $logFile = sys_get_temp_dir() . '/places_detect_' . $userId . '.log';
+    $logFile = app_tmp_dir() . '/places_detect_' . $userId . '.log';
 
     // Check if already running
-    $progressFile = sys_get_temp_dir() . '/places_detect_' . $userId . '.json';
+    $progressFile = app_tmp_dir() . '/places_detect_' . $userId . '.json';
     if (file_exists($progressFile)) {
         $progress = json_decode(file_get_contents($progressFile), true);
         if ($progress && ($progress['status'] ?? '') === 'running') {
             fwrite(STDOUT, date('Y-m-d H:i:s') . " User {$userId}: detection already running, skipping.\n");
-    file_put_contents(sys_get_temp_dir() . '/places_cron.log', date('Y-m-d H:i:s') . " | SKIP | User {$userId} already running\n", FILE_APPEND);
+    file_put_contents(app_tmp_dir() . '/places_cron.log', date('Y-m-d H:i:s') . " | SKIP | User {$userId} already running\n", FILE_APPEND);
             continue;
         }
     }
 
-    fwrite(STDOUT, date('Y-m-d H:i:s') . " User {$userId}: starting incremental detection...\n");
+    fwrite(STDOUT, date('Y-m-d H:i:s') . " User {$userId}: starting full (redetect) detection...\n");
 
     $cmd = sprintf(
-        '%s %s %d %s incremental > %s 2>&1 &',
+        '%s %s %d %s redetect > %s 2>&1 &',
         escapeshellarg($phpBin),
         escapeshellarg($scriptPath),
         $userId,
@@ -66,7 +66,7 @@ foreach ($users as $user) {
 fwrite(STDOUT, date('Y-m-d H:i:s') . " Cron detection launched for " . count($users) . " user(s).\n");
 
 // Log to cron log file (readable by web app)
-$cronLog = sys_get_temp_dir() . '/places_cron.log';
+$cronLog = app_tmp_dir() . '/places_cron.log';
 $entry = date('Y-m-d H:i:s') . " | OK | Launched detection for " . count($users) . " user(s)\n";
 file_put_contents($cronLog, $entry, FILE_APPEND);
 

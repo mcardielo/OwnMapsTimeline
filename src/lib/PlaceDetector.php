@@ -94,166 +94,205 @@ class PlaceDetector
             [$userId]
         );
 
-        $allPlaces = [];
+        if (empty($devices)) {
+            return [];
+        }
 
+        // Read the earliest last_analyzed_at across devices. For redetect it is
+        // 0; for incremental it is the oldest analysis point, minus overlap, so
+        // we capture new points from every device.
+        $minLastAnalyzed = null;
         foreach ($devices as $device) {
-            $deviceId = (int) $device['id'];
-
-            // Read last analysis timestamp for this device
             $meta = Database::queryOne(
                 'SELECT last_analyzed_at FROM places_meta WHERE user_id = ? AND device_id = ?',
-                [$userId, $deviceId]
+                [$userId, (int) $device['id']]
             );
-            $lastAnalyzed = $meta ? (int) $meta['last_analyzed_at'] : 0;
-            $overlapFrom = max(0, $lastAnalyzed - self::OVERLAP_SECONDS);
+            $la = $meta ? (int) $meta['last_analyzed_at'] : 0;
+            if ($minLastAnalyzed === null || $la < $minLastAnalyzed) {
+                $minLastAnalyzed = $la;
+            }
+        }
+        $overlapFrom = max(0, ($minLastAnalyzed ?? 0) - self::OVERLAP_SECONDS);
 
-            // Fetch locations for THIS DEVICE only
-            $points = Database::query(
-                'SELECT l.id, l.lat, l.lon, l.tst, l.acc, d.id AS device_id, d.name AS device_name
-                 FROM locations l
-                 JOIN devices d ON l.device_id = d.id
-                 WHERE d.user_id = ? AND d.id = ? AND l.tst >= ? AND l.lat IS NOT NULL AND l.lon IS NOT NULL
-                 ORDER BY l.tst ASC',
-                [$userId, $deviceId, $overlapFrom]
-            );
+        // Fetch locations for ALL devices of this user, merged into one stream
+        // so the same physical place reported by different devices clusters
+        // together instead of producing duplicate places.
+        $points = Database::query(
+            'SELECT l.id, l.lat, l.lon, l.tst, l.acc, d.id AS device_id, d.name AS device_name
+             FROM locations l
+             JOIN devices d ON l.device_id = d.id
+             WHERE d.user_id = ? AND l.tst >= ? AND l.lat IS NOT NULL AND l.lon IS NOT NULL
+             ORDER BY l.tst ASC',
+            [$userId, $overlapFrom]
+        );
 
-            if (count($points) < 5) {
-                self::updateMeta($userId, $deviceId, time());
+        if (count($points) < 5) {
+            $now = time();
+            foreach ($devices as $device) {
+                self::updateMeta($userId, (int) $device['id'], $now);
+            }
+            return [];
+        }
+
+        // Run DBSCAN (no-chain: clusters defined by proximity to origin point)
+        $clusters = self::dbscan($points, $epsilon, 5);
+
+        // Each cluster becomes a candidate place
+        $candidatePlaces = [];
+        foreach ($clusters as $cluster) {
+            if (count($cluster) < 5) continue;
+
+            $centroid = self::centroid($cluster);
+            $radius = self::clusterRadiusP90($cluster, $centroid);
+
+            if ($radius > $maxRadius) {
                 continue;
             }
 
-            // Run DBSCAN (no-chain: clusters defined by proximity to origin point)
-            $clusters = self::dbscan($points, $epsilon, 5);
+            // The cluster array order is by spatial proximity (DBSCAN no-chain),
+            // NOT by time. Use the real min/max tst of the cluster so the
+            // geofence window covers ALL visits, not just the first/last array
+            // elements.
+            $clusterMinTst = PHP_INT_MAX;
+            $clusterMaxTst = 0;
+            foreach ($cluster as $cp) {
+                $ct = (int) $cp['tst'];
+                if ($ct < $clusterMinTst) $clusterMinTst = $ct;
+                if ($ct > $clusterMaxTst) $clusterMaxTst = $ct;
+            }
+            $firstTst = $clusterMinTst - 3600;
+            $lastTst = $clusterMaxTst + 3600;
+            // The geofence radius must tolerate GPS drift. The cluster radius
+            // (P90) is the visual size of the place, but points can dance up to
+            // epsilon meters away. Use max(radius, epsilon) so visits are not
+            // fragmented by points briefly falling outside a too-tight radius.
+            $geofenceRadius = max($radius, $epsilon);
+            $visits = self::geofenceVisitsAll($points, $centroid, $geofenceRadius, $minPointsVisit, $firstTst, $lastTst, $settings['merge_gap']);
 
-            // Each cluster becomes a candidate place
-            $candidatePlaces = [];
-            foreach ($clusters as $cluster) {
-                if (count($cluster) < 5) continue;
+            $validVisits = array_filter($visits, function ($v) use ($minDuration) {
+                return $v['duration'] >= $minDuration;
+            });
 
-                $centroid = self::centroid($cluster);
-                $radius = self::clusterRadiusP90($cluster, $centroid);
-
-                if ($radius > $maxRadius) continue;
-
-                $firstTst = (int) $cluster[0]['tst'] - 3600;
-                $lastTst = (int) $cluster[count($cluster) - 1]['tst'] + 3600;
-                $visits = self::geofenceVisitsAll($points, $centroid, $radius, $minPointsVisit, $firstTst, $lastTst, $settings['merge_gap']);
-
-                $validVisits = array_filter($visits, function ($v) use ($minDuration) {
-                    return $v['duration'] >= $minDuration;
-                });
-
-                if (count($validVisits) < $minVisits) continue;
-
-                $totalTime = array_sum(array_column($validVisits, 'duration'));
-                $firstSeen = min(array_column($validVisits, 'start_tst'));
-                $lastSeen = max(array_column($validVisits, 'end_tst'));
-
-                $candidatePlaces[] = [
-                    'device_id'   => $deviceId,
-                    'device_name' => $device['name'],
-                    'lat'         => $centroid['lat'],
-                    'lon'         => $centroid['lon'],
-                    'radius'      => max($radius, 15),
-                    'visit_count' => count($validVisits),
-                    'total_time'  => $totalTime,
-                    'first_seen'  => $firstSeen,
-                    'last_seen'   => $lastSeen,
-                ];
+            if (count($validVisits) < $minVisits) {
+                continue;
             }
 
-            // Merge candidate places with existing ones (same device only)
-            $existingPlaces = self::getExistingPlaces($userId, $deviceId);
+            $totalTime = array_sum(array_column($validVisits, 'duration'));
+            $firstSeen = count($validVisits) > 0 ? min(array_column($validVisits, 'start_tst')) : 0;
+            $lastSeen  = count($validVisits) > 0 ? max(array_column($validVisits, 'end_tst')) : 0;
 
-            foreach ($candidatePlaces as $cand) {
-                $merged = false;
-                foreach ($existingPlaces as &$place) {
-                    $dist = self::haversine($cand['lat'], $cand['lon'], $place['lat'], $place['lon']);
-                    if ($dist <= $mergeDistance) {
-                        // Update centroid + radius with the candidate's points
-                        // (keep the place geometry accurate as new points arrive)
-                        $allDevicePoints = Database::query(
-                            'SELECT l.lat, l.lon FROM locations l WHERE l.device_id = ? AND l.lat IS NOT NULL AND l.lon IS NOT NULL AND l.tst >= ? AND l.tst <= ?',
-                            [$deviceId, (int) $place['first_seen'] - 3600, max((int) $cand['last_seen'], (int) $place['last_seen']) + 3600]
-                        );
-                        $placePoints = [];
-                        $checkRadius = max((float) $place['radius'], $cand['radius']);
-                        foreach ($allDevicePoints as $ap) {
-                            $d = self::haversine((float) $place['lat'], (float) $place['lon'], (float) $ap['lat'], (float) $ap['lon']);
-                            if ($d <= $checkRadius) {
-                                $placePoints[] = $ap;
-                            }
-                        }
-                        if (count($placePoints) >= 5) {
-                            $newCentroid = self::centroid($placePoints);
-                            $newRadius = self::clusterRadiusP90($placePoints, $newCentroid);
-                            $place['lat'] = $newCentroid['lat'];
-                            $place['lon'] = $newCentroid['lon'];
-                            $place['radius'] = max($newRadius, 15);
-                        } else {
-                            $place['radius'] = max($place['radius'], $cand['radius']);
-                        }
+            // A place is no longer tied to a single device. We keep device_id
+            // for backwards compatibility but assign the dominant device of the
+            // cluster (the one with the most points).
+            $deviceCounts = [];
+            foreach ($cluster as $p) {
+                $did = (int) $p['device_id'];
+                $deviceCounts[$did] = ($deviceCounts[$did] ?? 0) + 1;
+            }
+            arsort($deviceCounts);
+            $dominantDeviceId = (int) array_key_first($deviceCounts);
 
-                        // Recalculate visit stats from ALL device points (not
-                        // just the candidate's window). This ensures visit_count,
-                        // total_time, first_seen and last_seen are always
-                        // accurate regardless of the cluster's time window.
-                        $realVisits = self::getVisits((int) $place['id'], $userId);
-                        $place['visit_count'] = count($realVisits);
-                        $place['total_time']  = array_sum(array_column($realVisits, 'duration'));
-                        if (count($realVisits) > 0) {
-                            $place['first_seen'] = min(array_column($realVisits, 'start_tst'));
-                            $place['last_seen']  = max(array_column($realVisits, 'end_tst'));
-                        }
+            $candidatePlaces[] = [
+                'device_id'   => $dominantDeviceId,
+                'device_name' => $device['name'] ?? '',
+                'lat'         => $centroid['lat'],
+                'lon'         => $centroid['lon'],
+                'radius'      => max($radius, 15),
+                'visit_count' => count($validVisits),
+                'total_time'  => $totalTime,
+                'first_seen'  => $firstSeen,
+                'last_seen'   => $lastSeen,
+            ];
+        }
 
-                        $place['updated_at'] = date('Y-m-d H:i:s');
-                        self::savePlace($place);
-                        $merged = true;
-                        break;
-                    }
-                }
-                unset($place);
+        // Merge candidate places with existing ones across ALL devices (places
+        // are physical locations, shared by every device of the user).
+        $existingPlaces = self::getExistingPlaces($userId);
 
-                if (!$merged) {
-                    $id = Database::insert(
-                        'INSERT INTO places (user_id, device_id, name, lat, lon, radius, visit_count, total_time, first_seen, last_seen)
-                         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)',
-                        [$userId, $deviceId, $cand['lat'], $cand['lon'], $cand['radius'], $cand['visit_count'], $cand['total_time'], $cand['first_seen'], $cand['last_seen']]
+        foreach ($candidatePlaces as $cand) {
+            $merged = false;
+            foreach ($existingPlaces as &$place) {
+                $dist = self::haversine($cand['lat'], $cand['lon'], $place['lat'], $place['lon']);
+                if ($dist <= $mergeDistance) {
+                    // Update centroid + radius with the candidate's points
+                    // (keep the place geometry accurate as new points arrive)
+                    $allUserPoints = Database::query(
+                        'SELECT l.lat, l.lon FROM locations l JOIN devices d ON l.device_id = d.id WHERE d.user_id = ? AND l.lat IS NOT NULL AND l.lon IS NOT NULL AND l.tst >= ? AND l.tst <= ?',
+                        [$userId, (int) $place['first_seen'] - 3600, max((int) $cand['last_seen'], (int) $place['last_seen']) + 3600]
                     );
-                    $cand['id'] = (int) $id;
-                    $cand['name'] = null;
-                    $existingPlaces[] = $cand;
+                    $placePoints = [];
+                    $checkRadius = max((float) $place['radius'], $cand['radius']);
+                    foreach ($allUserPoints as $ap) {
+                        $d = self::haversine((float) $place['lat'], (float) $place['lon'], (float) $ap['lat'], (float) $ap['lon']);
+                        if ($d <= $checkRadius) {
+                            $placePoints[] = $ap;
+                        }
+                    }
+                    if (count($placePoints) >= 5) {
+                        $newCentroid = self::centroid($placePoints);
+                        $newRadius = self::clusterRadiusP90($placePoints, $newCentroid);
+                        $place['lat'] = $newCentroid['lat'];
+                        $place['lon'] = $newCentroid['lon'];
+                        $place['radius'] = max($newRadius, 15);
+                    } else {
+                        $place['radius'] = max($place['radius'], $cand['radius']);
+                    }
+
+                    // Recalculate visit stats from ALL user points (all devices).
+                    $realVisits = self::getVisits((int) $place['id'], $userId);
+                    $place['visit_count'] = count($realVisits);
+                    $place['total_time']  = array_sum(array_column($realVisits, 'duration'));
+                    if (count($realVisits) > 0) {
+                        $place['first_seen'] = min(array_column($realVisits, 'start_tst'));
+                        $place['last_seen']  = max(array_column($realVisits, 'end_tst'));
+                    } else {
+                        $place['first_seen'] = 0;
+                        $place['last_seen']  = 0;
+                    }
+
+                    $place['updated_at'] = date('Y-m-d H:i:s');
+                    self::savePlace($place);
+                    $merged = true;
+                    break;
                 }
             }
+            unset($place);
 
-            // Refresh visit stats for ALL places (existing + newly created)
-            // from the complete point history. The merge loop above only
-            // updates a place when a new candidate cluster (>= min_visits
-            // visits within the recent window) merges into it — so a single
-            // new visit to an existing place would leave its visit_count,
-            // total_time, first_seen and last_seen stale forever. This pass
-            // guarantees those fields always reflect the full history.
-            foreach ($existingPlaces as &$p) {
-                $realVisits = self::getVisits((int) $p['id'], $userId);
-                $p['visit_count'] = count($realVisits);
-                $p['total_time']  = array_sum(array_column($realVisits, 'duration'));
-                if (count($realVisits) > 0) {
-                    $p['first_seen'] = min(array_column($realVisits, 'start_tst'));
-                    $p['last_seen']  = max(array_column($realVisits, 'end_tst'));
-                }
-                self::savePlace($p);
-            }
-            unset($p);
-
-            self::updateMeta($userId, $deviceId, time());
-
-            // Collect places from this device
-            foreach ($existingPlaces as $p) {
-                $allPlaces[] = $p;
+            if (!$merged) {
+                $id = Database::insert(
+                    'INSERT INTO places (user_id, device_id, name, lat, lon, radius, visit_count, total_time, first_seen, last_seen)
+                     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)',
+                    [$userId, $cand['device_id'], $cand['lat'], $cand['lon'], $cand['radius'], $cand['visit_count'], $cand['total_time'], $cand['first_seen'], $cand['last_seen']]
+                );
+                $cand['id'] = (int) $id;
+                $cand['name'] = null;
+                $existingPlaces[] = $cand;
             }
         }
 
-        return $allPlaces;
+        // Refresh visit stats for ALL places (existing + newly created) from
+        // the complete point history.
+        foreach ($existingPlaces as &$p) {
+            $realVisits = self::getVisits((int) $p['id'], $userId);
+            $p['visit_count'] = count($realVisits);
+            $p['total_time']  = array_sum(array_column($realVisits, 'duration'));
+            if (count($realVisits) > 0) {
+                $p['first_seen'] = min(array_column($realVisits, 'start_tst'));
+                $p['last_seen']  = max(array_column($realVisits, 'end_tst'));
+            } else {
+                $p['first_seen'] = 0;
+                $p['last_seen']  = 0;
+            }
+            self::savePlace($p);
+        }
+        unset($p);
+
+        $now = time();
+        foreach ($devices as $device) {
+            self::updateMeta($userId, (int) $device['id'], $now);
+        }
+
+        return $existingPlaces;
     }
 
     /**
@@ -280,6 +319,8 @@ class PlaceDetector
         $visitStart = null;
         $visitPoints = 0;
         $visitDevice = null;
+        $lastInsideTst = null;
+        $lastPointTst = null;
 
         foreach ($allPoints as $p) {
             $tst = (int) $p['tst'];
@@ -300,7 +341,28 @@ class PlaceDetector
                 $inVisit = false;
                 $visitStart = null;
                 $visitPoints = 0;
+                $lastInsideTst = null;
                 break; // points are sorted by tst, no need to continue
+            }
+
+            // A temporal gap larger than mergeGap between any two consecutive
+            // points (whether inside or outside the radius) always closes the
+            // current visit. This prevents sparse/sporadic points separated by
+            // days/weeks from being merged into a single bogus visit.
+            if ($inVisit && $mergeGap > 0 && $lastPointTst !== null && ($tst - $lastPointTst) > $mergeGap) {
+                if ($visitPoints >= $minPoints) {
+                    $visits[] = [
+                        'start_tst'   => $visitStart,
+                        'end_tst'     => $lastInsideTst !== null ? $lastInsideTst : $lastPointTst,
+                        'duration'    => ($lastInsideTst !== null ? $lastInsideTst : $lastPointTst) - $visitStart,
+                        'point_count' => $visitPoints,
+                        'device_name' => $visitDevice,
+                    ];
+                }
+                $inVisit = false;
+                $visitStart = null;
+                $visitPoints = 0;
+                $lastInsideTst = null;
             }
 
             $dist = self::haversine($lat, $lon, (float) $p['lat'], (float) $p['lon']);
@@ -311,8 +373,10 @@ class PlaceDetector
                 $visitStart = $tst;
                 $visitPoints = 1;
                 $visitDevice = $p['device_name'] ?? '';
+                $lastInsideTst = $tst;
             } elseif ($inside && $inVisit) {
                 $visitPoints++;
+                $lastInsideTst = $tst;
             } elseif (!$inside && $inVisit) {
                 $inVisit = false;
                 if ($visitPoints >= $minPoints) {
@@ -326,7 +390,10 @@ class PlaceDetector
                 }
                 $visitStart = null;
                 $visitPoints = 0;
+                $lastInsideTst = null;
             }
+
+            $lastPointTst = $tst;
         }
 
         if ($inVisit && $visitPoints >= $minPoints) {
@@ -388,15 +455,14 @@ class PlaceDetector
         $minDuration = (int) $settings['min_duration'];
         $mergeGap = (int) $settings['merge_gap'];
 
-        // Get points for THIS DEVICE only (places are per-device)
-        $deviceId = (int) $place['device_id'];
+        // Get ALL points for this USER (a place is shared across devices)
         $points = Database::query(
             'SELECT l.id, l.lat, l.lon, l.tst, l.acc, d.id AS device_id, d.name AS device_name
              FROM locations l
              JOIN devices d ON l.device_id = d.id
-             WHERE d.user_id = ? AND d.id = ? AND l.lat IS NOT NULL AND l.lon IS NOT NULL
+             WHERE d.user_id = ? AND l.lat IS NOT NULL AND l.lon IS NOT NULL
              ORDER BY l.tst ASC',
-            [$userId, $deviceId]
+            [$userId]
         );
 
         // Collect ALL visits with minPoints filter (no duration filter yet —
@@ -406,25 +472,49 @@ class PlaceDetector
         $visitStart = null;
         $visitPoints = 0;
         $visitDevice = null;
+        $lastInsideTst = null;
 
         foreach ($points as $p) {
+            $tst = (int) $p['tst'];
             $dist = self::haversine($lat, $lon, (float) $p['lat'], (float) $p['lon']);
             $inside = ($dist <= $radius);
 
+            // Close the current visit if the gap since the last inside point
+            // exceeds mergeGap (prevents sparse points from merging into one
+            // bogus visit spanning days/weeks).
+            if ($inside && $inVisit && $mergeGap > 0 && $lastInsideTst !== null && ($tst - $lastInsideTst) > $mergeGap) {
+                if ($visitPoints >= $minPoints) {
+                    $rawVisits[] = [
+                        'start_tst'   => $visitStart,
+                        'end_tst'     => $lastInsideTst,
+                        'duration'    => $lastInsideTst - $visitStart,
+                        'point_count' => $visitPoints,
+                        'device_name' => $visitDevice,
+                        'device_id'   => $p['device_id'],
+                    ];
+                }
+                $inVisit = false;
+                $visitStart = null;
+                $visitPoints = 0;
+                $lastInsideTst = null;
+            }
+
             if ($inside && !$inVisit) {
                 $inVisit = true;
-                $visitStart = (int) $p['tst'];
+                $visitStart = $tst;
                 $visitPoints = 1;
                 $visitDevice = $p['device_name'] ?? '';
+                $lastInsideTst = $tst;
             } elseif ($inside && $inVisit) {
                 $visitPoints++;
+                $lastInsideTst = $tst;
             } elseif (!$inside && $inVisit) {
                 $inVisit = false;
                 if ($visitPoints >= $minPoints) {
                     $rawVisits[] = [
                         'start_tst'   => $visitStart,
-                        'end_tst'     => (int) $p['tst'],
-                        'duration'    => (int) $p['tst'] - $visitStart,
+                        'end_tst'     => $tst,
+                        'duration'    => $tst - $visitStart,
                         'point_count' => $visitPoints,
                         'device_name' => $visitDevice,
                         'device_id'   => $p['device_id'],
@@ -432,6 +522,7 @@ class PlaceDetector
                 }
                 $visitStart = null;
                 $visitPoints = 0;
+                $lastInsideTst = null;
             }
         }
 
@@ -489,25 +580,49 @@ class PlaceDetector
         $visitStart = null;
         $visitPoints = 0;
         $visitDevice = '';
+        $lastInsideTst = null;
 
         foreach ($points as $p) {
+            $tst = (int) $p['tst'];
             $dist = self::haversine($lat, $lon, (float) $p['lat'], (float) $p['lon']);
             $inside = ($dist <= $radius);
 
+            // Close the current visit if the gap since the last inside point
+            // exceeds mergeGap (prevents sparse points from merging into one
+            // bogus visit spanning days/weeks).
+            if ($inside && $inVisit && $mergeGap > 0 && $lastInsideTst !== null && ($tst - $lastInsideTst) > $mergeGap) {
+                if ($visitPoints >= $minPoints) {
+                    $rawVisits[] = [
+                        'start_tst'   => $visitStart,
+                        'end_tst'     => $lastInsideTst,
+                        'duration'    => $lastInsideTst - $visitStart,
+                        'point_count' => $visitPoints,
+                        'device_name' => $visitDevice,
+                        'device_id'   => $p['device_id'],
+                    ];
+                }
+                $inVisit = false;
+                $visitStart = null;
+                $visitPoints = 0;
+                $lastInsideTst = null;
+            }
+
             if ($inside && !$inVisit) {
                 $inVisit = true;
-                $visitStart = (int) $p['tst'];
+                $visitStart = $tst;
                 $visitPoints = 1;
                 $visitDevice = $p['device_name'] ?? '';
+                $lastInsideTst = $tst;
             } elseif ($inside && $inVisit) {
                 $visitPoints++;
+                $lastInsideTst = $tst;
             } elseif (!$inside && $inVisit) {
                 $inVisit = false;
                 if ($visitPoints >= $minPoints) {
                     $rawVisits[] = [
                         'start_tst'   => $visitStart,
-                        'end_tst'     => (int) $p['tst'],
-                        'duration'    => (int) $p['tst'] - $visitStart,
+                        'end_tst'     => $tst,
+                        'duration'    => $tst - $visitStart,
                         'point_count' => $visitPoints,
                         'device_name' => $visitDevice,
                         'device_id'   => $p['device_id'],
@@ -515,6 +630,7 @@ class PlaceDetector
                 }
                 $visitStart = null;
                 $visitPoints = 0;
+                $lastInsideTst = null;
             }
         }
 

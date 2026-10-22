@@ -379,20 +379,21 @@ class PlaceController
         // mode: 'incremental' (default) or 'redetect' (clean slate)
         $mode = $body['mode'] ?? $_POST['mode'] ?? $query['mode'] ?? 'incremental';
 
-        $progressFile = sys_get_temp_dir() . '/places_detect_' . $userId . '.json';
+        $progressFile = app_tmp_dir() . '/places_detect_' . $userId . '.json';
         @unlink($progressFile);
-        @unlink(sys_get_temp_dir() . '/places_debug_' . $userId . '.log');
-        @unlink(sys_get_temp_dir() . '/places_debug_dbscan.log');
+        @unlink(app_tmp_dir() . '/places_debug_' . $userId . '.log');
+        @unlink(app_tmp_dir() . '/places_debug_dbscan.log');
 
         if ($mode === 'redetect') {
-            // Only delete unnamed places — named places are preserved
-            Database::execute("DELETE FROM places WHERE user_id = ? AND (name IS NULL OR name = '')", [$userId]);
+            // Full clean re-detection: reset meta AND delete unnamed
+            // (auto-detected) places. Named places are preserved.
             Database::execute('UPDATE places_meta SET last_analyzed_at = 0 WHERE user_id = ?', [$userId]);
+            Database::execute('DELETE FROM places WHERE user_id = ? AND name IS NULL', [$userId]);
         }
 
         // Launch background PHP process (setsid to fully detach from PHP-FPM)
         $scriptPath = __DIR__ . '/../../scripts/detect_places.php';
-        $logFile = sys_get_temp_dir() . '/places_detect_' . $userId . '.log';
+        $logFile = app_tmp_dir() . '/places_detect_' . $userId . '.log';
         // PHP_BINARY returns php-fpm binary when running under FPM.
         // We need the CLI binary instead. In php:*-fpm-alpine images,
         // the CLI binary is at /usr/local/bin/php (same path, different binary).
@@ -501,7 +502,7 @@ class PlaceController
             exit;
         }
 
-        $logFile = sys_get_temp_dir() . '/places_detect_' . $userId . '.log';
+        $logFile = app_tmp_dir() . '/places_detect_' . $userId . '.log';
         $logContent = file_exists($logFile) ? file_get_contents($logFile) : 'No log file found';
 
         header('Content-Type: text/plain');
@@ -520,7 +521,7 @@ class PlaceController
             exit;
         }
 
-        $cronLog = sys_get_temp_dir() . '/places_cron.log';
+        $cronLog = app_tmp_dir() . '/places_cron.log';
         $content = file_exists($cronLog) ? file_get_contents($cronLog) : '';
         $lines = array_filter(explode("
 ", trim($content)));
@@ -543,8 +544,8 @@ class PlaceController
             exit;
         }
 
-        $debugFile = sys_get_temp_dir() . '/places_debug_' . $userId . '.log';
-        $dbscanFile = sys_get_temp_dir() . '/places_debug_dbscan.log';
+        $debugFile = app_tmp_dir() . '/places_debug_' . $userId . '.log';
+        $dbscanFile = app_tmp_dir() . '/places_debug_dbscan.log';
         $content = '';
         if (file_exists($debugFile)) $content .= file_get_contents($debugFile);
         if (file_exists($dbscanFile)) {
@@ -561,7 +562,7 @@ class PlaceController
     // ── Helper: read detection status from temp file ────────────────────────
     private static function getDetectStatus(int $userId): array
     {
-        $progressFile = sys_get_temp_dir() . '/places_detect_' . $userId . '.json';
+        $progressFile = app_tmp_dir() . '/places_detect_' . $userId . '.json';
         if (file_exists($progressFile)) {
             $data = json_decode(file_get_contents($progressFile), true);
             if ($data) {

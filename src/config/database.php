@@ -293,3 +293,20 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // Auto-connect on first load (triggers migrations)
 Database::connect();
+
+// ── Runtime temp dir ──────────────────────────────────────────────────────────
+// Detection logs/progress live here instead of the system /tmp, because:
+//   - The midnight cron runs as root and the web UI runs as www-data.
+//   - If both write to /tmp, a root-owned log file cannot be overwritten by
+//     www-data ("Permission denied"), which makes the UI report
+//     "Failed to start detection".
+//   - /app/data is a persistent volume owned by www-data, so both processes
+//     (cron + FPM) can read/write without ownership collisions.
+function app_tmp_dir(): string
+{
+    $dir = getenv('APP_TMP_DIR') ?: '/app/data/tmp';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    return $dir;
+}

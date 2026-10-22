@@ -39,7 +39,7 @@ if (!$userId) {
 
 _log("User ID: {$userId}");
 
-$progressFile = sys_get_temp_dir() . '/places_detect_' . $userId . '.json';
+$progressFile = app_tmp_dir() . '/places_detect_' . $userId . '.json';
 _log("Progress file: {$progressFile}");
 
 // Write initial status
@@ -99,11 +99,13 @@ try {
         }
     }
 
-    // If redetect mode, reset all meta to force full reprocessing
+    // If redetect mode, reset all meta AND delete unnamed (auto-detected)
+    // places to force a full clean re-detection from scratch. Named places
+    // (set manually by the user) are preserved.
     if ($mode === 'redetect') {
         Database::execute('UPDATE places_meta SET last_analyzed_at = 0 WHERE user_id = ?', [$userId]);
-        $deleted = Database::execute("DELETE FROM places WHERE user_id = ? AND (name IS NULL OR name = '')", [$userId]);
-        _log("Re-detect: cleared {$deleted} unnamed places, reset last_analyzed_at");
+        Database::execute('DELETE FROM places WHERE user_id = ? AND name IS NULL', [$userId]);
+        _log("Re-detect: reset last_analyzed_at and cleared unnamed places");
     }
 
     _log("Processing points from earliest analysis date");
